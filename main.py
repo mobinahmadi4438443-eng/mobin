@@ -200,7 +200,6 @@ def init_db() -> None:
     db_path = _db_path()
     os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     with sqlite3.connect(db_path) as con:
-        # Users Table
         con.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
@@ -218,17 +217,14 @@ def init_db() -> None:
         if "wallet_balance" not in cols: con.execute("ALTER TABLE users ADD COLUMN wallet_balance INTEGER NOT NULL DEFAULT 0")
         if "referrer_id" not in cols: con.execute("ALTER TABLE users ADD COLUMN referrer_id INTEGER")
         
-        # Settings Table
         con.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);")
         
-        # Packages Table
         con.execute("CREATE TABLE IF NOT EXISTS packages (count INTEGER PRIMARY KEY, price INTEGER, is_active INTEGER DEFAULT 1);")
         pkg_cnt = con.execute("SELECT COUNT(*) FROM packages").fetchone()[0]
         if pkg_cnt == 0:
             defaults = [(200,150000),(300,240000),(400,330000),(500,430000),(600,500000),(800,600000),(1000,650000)]
             con.executemany("INSERT INTO packages(count, price) VALUES (?, ?)", defaults)
             
-        # Wallet Requests
         con.execute("""
             CREATE TABLE IF NOT EXISTS wallet_requests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -240,7 +236,6 @@ def init_db() -> None:
             );
         """)
 
-        # Reservations
         con.execute("""
             CREATE TABLE IF NOT EXISTS reservations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -265,7 +260,6 @@ def init_db() -> None:
         con.execute("DROP INDEX IF EXISTS ux_reservations_reserved_at_active;")
         con.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_reservations_reserved_at_booked ON reservations(reserved_at) WHERE status = 'booked';")
         
-        # Payment Requests
         con.execute("""
             CREATE TABLE IF NOT EXISTS payment_requests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -289,7 +283,6 @@ def init_db() -> None:
         p_cols = {row[1] for row in con.execute("PRAGMA table_info(payment_requests)").fetchall()}
         if "is_wallet" not in p_cols: con.execute("ALTER TABLE payment_requests ADD COLUMN is_wallet INTEGER DEFAULT 0")
 
-        # Other tables
         con.execute("""
             CREATE TABLE IF NOT EXISTS discount_codes (
                 code TEXT PRIMARY KEY, percent INTEGER NOT NULL, amount_toman INTEGER, max_uses INTEGER NOT NULL,
@@ -322,7 +315,6 @@ def set_setting(key: str, value: str):
         con.execute("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
 
 def get_daily_limit() -> int:
-    # Gets from DB, falls back to .env if empty
     return _parse_daily_limit(get_setting("daily_limit", os.getenv("DAILY_LIMIT", "3000")))
 
 def get_packages() -> list:
@@ -471,7 +463,6 @@ def cancel_booked_reservation_by_reserved_at(reserved_at: datetime) -> int:
         cur = con.execute("UPDATE reservations SET status='cancelled' WHERE reserved_at=? AND status='booked'", (reserved_iso,))
         return int(cur.rowcount or 0)
 
-# Other required legacy DB overrides 
 def get_slot_owner_user_id(reserved_at: datetime) -> int | None:
     reserved_iso = reserved_at.isoformat(timespec="seconds")
     with sqlite3.connect(_db_path()) as con:
@@ -505,6 +496,15 @@ def list_broadcast_user_ids() -> list[int]:
         rows = con.execute("SELECT user_id FROM users WHERE unsubscribed_at IS NULL ORDER BY first_seen_at ASC").fetchall()
     return [int(r[0]) for r in rows]
 
+def set_user_subscription(user_id: int, subscribed: bool, username: str | None = None) -> None:
+    now_iso = datetime.utcnow().isoformat(timespec="seconds")
+    with sqlite3.connect(_db_path()) as con:
+        con.execute("INSERT INTO users(user_id, first_seen_at, last_seen_at, username) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at, username = COALESCE(excluded.username, users.username)", (user_id, now_iso, now_iso, username))
+        if subscribed:
+            con.execute("UPDATE users SET is_subscribed = 1, subscribed_at = ?, unsubscribed_at = NULL WHERE user_id = ?", (now_iso, user_id))
+        else:
+            con.execute("UPDATE users SET is_subscribed = 0, unsubscribed_at = ? WHERE user_id = ?", (now_iso, user_id))
+
 # ==========================================
 # UTILITIES
 # ==========================================
@@ -523,7 +523,6 @@ def _parse_toman_amount(text: str) -> int | None:
     t = t.replace(",", " ").replace("_", " ")
     t = re.sub(r"\s+", " ", t)
     t = t.replace("تومان", "").replace("تومن", "").strip()
-
     mult = 1
     if "میلیون" in t:
         mult = 1_000_000
@@ -534,16 +533,11 @@ def _parse_toman_amount(text: str) -> int | None:
     elif t.endswith("k"):
         mult = 1_000
         t = t[:-1].strip()
-
     m = re.search(r"\d+", t)
-    if not m:
-        return None
-    try:
-        v = int(m.group(0))
-    except Exception:
-        return None
-    if v <= 0:
-        return None
+    if not m: return None
+    try: v = int(m.group(0))
+    except: return None
+    if v <= 0: return None
     return int(v) * int(mult)
 
 def _parse_duration_to_timedelta(text: str) -> timedelta | None:
@@ -551,8 +545,7 @@ def _parse_duration_to_timedelta(text: str) -> timedelta | None:
     m = re.fullmatch(r"(\d+)\s*(روز|ساعت|دقیقه)", t)
     if not m:
         m = re.fullmatch(r"(\d+)\s*([dhm])", t, flags=re.IGNORECASE)
-    if not m:
-        return None
+    if not m: return None
     value = int(m.group(1))
     unit = m.group(2).lower()
     if value <= 0: return None
@@ -578,19 +571,16 @@ def _normalize_hhmm(text: str) -> str | None:
     return f"{hh:02d}:{mm:02d}"
 
 def _format_seen_at(seen_at_iso_utc: str | None) -> str:
-    if not seen_at_iso_utc:
-        return "نامشخص"
+    if not seen_at_iso_utc: return "نامشخص"
     try:
         dt = datetime.fromisoformat(seen_at_iso_utc)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+        if dt.tzinfo is None: dt = dt.replace(tzinfo=ZoneInfo("UTC"))
         dt = dt.astimezone(TZ)
         jdate = jdatetime.date.fromgregorian(date=dt.date())
         date_str = f"{jdate.year:04d}/{jdate.month:02d}/{jdate.day:02d}".translate(PERSIAN_DIGITS)
         time_str = dt.strftime("%H:%M").translate(PERSIAN_DIGITS)
         return f"{date_str} - {time_str}"
-    except Exception:
-        return seen_at_iso_utc
+    except: return seen_at_iso_utc
 
 def _next_date_for_persian_weekday(selected_persian_weekday: int, now: datetime) -> datetime.date:
     today_persian = (now.weekday() + 2) % 7
@@ -683,7 +673,6 @@ async def handle_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text("منوی اصلی 🏠:", reply_markup=_main_menu_keyboard(update.effective_user.id))
     raise ApplicationHandlerStop
 
-# ----------------- RE-ADDED ORIGINAL FEATURES -----------------
 async def on_verification(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await check_membership_gate(update, context): return
     context.user_data[UD_STATE] = STATE_VERIF_PHOTO
@@ -693,7 +682,7 @@ async def on_verification(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "نکات :\n"
         "1) شماره کارت و نام صاحب کارت کاملا مشخص باشد.\n"
         "2) لطفا تاریخ اعتبار و Cvv2 کارت خود را بپوشانید!\n"
-        "3) فقط با کارتی که احراز هویت میکنید میتوانید خرید انجام بدید و اگر با کارت دیگری اقدام کنید تراکنش ناموفق میشود و هزینه از سمت خودِ بانک به شما بازگشت داده میشود.\n"
+        "3) فقط با کارتی که احراز هویت میکنید میتوانید خرید انجام بدید و اگر با کارت دیگری اقدام کنید تراکنش ناموفق میشود.\n"
         "4) در صورتی که توانایی ارسال عکس از کارت را ندارید تنها راه حل ارسال عکس از کارت ملی یا شناسنامه صاحب کارت است.\n\n"
         "لطفا عکس از کارتی که میخواهید با آن خرید انجام دهید ارسال کنید.",
         reply_markup=_back_keyboard(),
@@ -720,7 +709,60 @@ async def takhfif_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     context.user_data[UD_STATE] = STATE_TAKHFIF_CODE
     await update.message.reply_text("کد تخفیف را ارسال کنید (مثال: mobin)", reply_markup=_back_keyboard())
 
-# ----------------- ROUTERS & CENTRAL TEXT PROCESSOR -----------------
+async def account_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await check_membership_gate(update, context): return
+    user_id = update.effective_user.id
+    bal = await asyncio.to_thread(get_wallet_balance, user_id)
+    card = await asyncio.to_thread(get_verified_card_number, user_id)
+    v_status = f"تایید شده ✅ ({card})" if card else "تایید نشده ❌"
+    
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕ افزایش اعتبار", callback_data="wallet_charge")]
+    ])
+    await update.message.reply_text(
+        f"👛 **کیف پول و حساب کاربری شما**\n\n"
+        f"🆔 آیدی شما: `{user_id}`\n"
+        f"💳 وضعیت احراز هویت: {v_status}\n"
+        f"💰 موجودی فعلی: {_format_toman(bal)}\n\n"
+        "برای شارژ حساب روی دکمه زیر کلیک کنید👇",
+        reply_markup=kb, parse_mode="Markdown"
+    )
+
+async def wallet_charge_init(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    context.user_data[UD_STATE] = STATE_WALLET_AMOUNT
+    await query.message.reply_text("مبلغ مورد نظر برای شارژ را به تومان وارد کنید (مثلا 100000) 💸:", reply_markup=_back_keyboard())
+
+async def referral_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await check_membership_gate(update, context): return
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔗 ایجاد لینک زیر مجموعه", callback_data="ref_create")],
+        [InlineKeyboardButton("📋 لیست زیر مجموعه ها", callback_data="ref_list")]
+    ])
+    await update.message.reply_text(
+        "👥 **بخش زیرمجموعه گیری**\n\n"
+        "با دعوت دوستان خود به ربات، از هر خرید آنها **۵٪ پورسانت** به کیف پول شما واریز می‌شود! 🎁",
+        reply_markup=kb, parse_mode="Markdown"
+    )
+
+async def ref_actions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    user_id = update.effective_user.id
+    await query.answer()
+    if query.data == "ref_create":
+        bot_usr = context.bot.username
+        link = f"https://t.me/{bot_usr}?start=ref_{user_id}"
+        await query.message.reply_text(f"لینک اختصاصی شما برای دعوت:\n\n{link}\n\nاین لینک را برای دوستان خود بفرستید! 📤")
+    elif query.data == "ref_list":
+        refs = await asyncio.to_thread(get_referrals, user_id)
+        if not refs:
+            await query.message.reply_text("شما هنوز زیرمجموعه‌ای ندارید! 😔")
+            return
+        kb = [[InlineKeyboardButton(f"👤 {u[1] or u[0]}", url=f"tg://user?id={u[0]}")] for u in refs]
+        await query.message.reply_text(f"لیست زیرمجموعه‌های شما ({_to_fa_digits(str(len(refs)))} نفر):", reply_markup=InlineKeyboardMarkup(kb))
+
+# ----------------- CENTRAL ROUTER (TEXT & PHOTOS) -----------------
 async def central_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     msg = update.message
     user = update.effective_user
@@ -746,13 +788,14 @@ async def central_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await msg.reply_text(f"ارسال همگانی پایان یافت ✅\nموفق: {sent}", reply_markup=_admin_panel_keyboard())
         return
 
-    # Verification Flow (Photos & Text)
+    # Verification Photo
     if state == STATE_VERIF_PHOTO and getattr(msg, "photo", None):
         context.user_data["verification_card_photo_file_id"] = msg.photo[-1].file_id
         context.user_data[UD_STATE] = STATE_VERIF_CARD
         await msg.reply_text("• لطفا شماره کارت خود را به صورت اعداد انگلیسی ارسال کنید\nدر صورتی که منصرف شدید دکمه بازگشت را بزنید.", reply_markup=_back_keyboard())
         return
         
+    # Verification Card
     if state == STATE_VERIF_CARD and msg.text:
         card = _normalize_card_number(msg.text)
         if not card:
@@ -869,10 +912,10 @@ async def central_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         await asyncio.to_thread(set_setting, "daily_limit", str(new_limit))
         context.user_data.clear()
-        await msg.reply_text(f"محدودیت روزانه با موفقیت به {new_limit} پخشی تغییر یافت ✅", reply_markup=_admin_panel_keyboard())
+        await msg.reply_text(f"محدودیت روزانه با موفقیت به {new_limit} تغییر یافت ✅", reply_markup=_admin_panel_keyboard())
         return
 
-    # Wallet Charge
+    # Wallet Charge Amount
     if state == STATE_WALLET_AMOUNT and msg.text:
         amt = _parse_toman_amount(msg.text)
         if not amt:
@@ -892,6 +935,7 @@ async def central_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.user_data[UD_STATE] = None
         return
 
+    # Wallet Charge Receipt
     if state == STATE_WALLET_RECEIPT and getattr(msg, "photo", None):
         amt = context.user_data.get('temp_wallet_amt', 0)
         req_id = await asyncio.to_thread(create_wallet_req, user.id, amt, msg.photo[-1].file_id)
@@ -936,11 +980,152 @@ async def central_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await msg.reply_text("عدد نامعتبر!")
         return
 
+async def admin_edits_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if data == "edit_no":
+        context.user_data.clear()
+        await query.edit_message_text("عملیات لغو شد ❌")
+        return
+    if data.startswith("edit_ok|"):
+        key = data.split("|")[1]
+        val = context.user_data.get('temp_edit')
+        db_key = "welcome_text" if key=="welcome" else ("card_number_text" if key=="card" else "rates_text")
+        await asyncio.to_thread(set_setting, db_key, val)
+        context.user_data.clear()
+        await query.edit_message_text("تغییرات با موفقیت ذخیره شد ✅")
+
+async def wallet_admin_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    _, req_id = data.split("|")
+    req_id = int(req_id)
+    req = await asyncio.to_thread(get_wallet_req, req_id)
+    if not req or req[2] != 'pending':
+        await query.answer("قبلا بررسی شده!")
+        return
+    
+    if data.startswith("wal_ok"):
+        await asyncio.to_thread(add_wallet_balance, req[0], req[1])
+        await asyncio.to_thread(update_wallet_req, req_id, 'approved')
+        await query.edit_message_caption(caption=query.message.caption + "\n\nتایید شد ✅")
+        try: await context.bot.send_message(req[0], f"مبلغ {_format_toman(req[1])} با موفقیت به کیف پول شما اضافه شد ✅")
+        except: pass
+    else:
+        await asyncio.to_thread(update_wallet_req, req_id, 'rejected')
+        await query.edit_message_caption(caption=query.message.caption + "\n\nرد شد ❌")
+        try: await context.bot.send_message(req[0], f"درخواست شارژ کیف پول شما رد شد ❌")
+        except: pass
+
+async def wallet_paid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data[UD_STATE] = STATE_WALLET_RECEIPT
+    await query.message.reply_text("📸 لطفاً عکس فیش واریزی خود را ارسال کنید:")
+
+# Admin Stats Pagination
+async def show_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE, offset=0):
+    tu, a24, a7d, a30, rb, pa, va = await asyncio.to_thread(get_admin_stats_detailed)
+    text = (
+        "📊 **آمار خفن ربات**\n\n"
+        f"👥 کل کاربران: `{tu}`\n"
+        f"🔥 فعال ۲۴ ساعت: `{a24}`\n"
+        f"📅 فعال ۷ روز: `{a7d}`\n"
+        f"🗓 فعال ۳۰ روز: `{a30}`\n\n"
+        f"✅ رزروهای قطعی: `{rb}`\n"
+        f"💳 پرداخت موفق: `{pa}`\n"
+        f"🪪 احراز هویت تایید شده: `{va}`\n\n"
+        "👇 لیست کاربران:"
+    )
+    
+    limit = 10
+    with sqlite3.connect(_db_path()) as con:
+        users = con.execute("SELECT user_id, username FROM users ORDER BY first_seen_at DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
+    
+    kb = []
+    for u in users:
+        name = u[1] if u[1] else str(u[0])
+        kb.append([InlineKeyboardButton(f"👤 {name}", callback_data=f"adm_usr|{u[0]}")])
+    
+    nav = []
+    if offset > 0: nav.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"adm_pg|{offset-limit}"))
+    if len(users) == limit: nav.append(InlineKeyboardButton("بعدی ➡️", callback_data=f"adm_pg|{offset+limit}"))
+    if nav: kb.append(nav)
+
+    if update.callback_query:
+        try: await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+        except: pass
+    else:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+
+async def admin_user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    uid = int(query.data.split("|")[1])
+    
+    with sqlite3.connect(_db_path()) as con:
+        u = con.execute("SELECT first_seen_at, wallet_balance, referrer_id FROM users WHERE user_id=?", (uid,)).fetchone()
+        rb = con.execute("SELECT COUNT(*) FROM reservations WHERE user_id=? AND status='booked'", (uid,)).fetchone()[0]
+        card = con.execute("SELECT card_number FROM verified_cards WHERE user_id=?", (uid,)).fetchone()
+    
+    card_str = f"✅ تایید شده ({card[0]})" if card else "❌ تایید نشده"
+    
+    text = (
+        f"🔍 **پروفایل حرفه‌ای کاربر**\n\n"
+        f"🆔 آیدی عددی: `{uid}`\n"
+        f"🪪 احراز هویت: {card_str}\n"
+        f"👛 موجودی کیف پول: {_format_toman(u[1])}\n"
+        f"✅ تعداد رزروهای موفق: `{rb}`\n"
+        f"📅 تاریخ استارت: `{_format_seen_at(u[0])}`\n"
+    )
+    
+    try:
+        photos = await context.bot.get_user_profile_photos(uid, limit=1)
+        if photos.total_count > 0:
+            await query.message.reply_photo(photos.photos[0][-1].file_id, caption=text, parse_mode="Markdown")
+        else:
+            await query.message.reply_text(text, parse_mode="Markdown")
+    except Exception:
+        await query.message.reply_text(text, parse_mode="Markdown")
+
+async def inventory_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    pkgs = await asyncio.to_thread(get_packages)
+    kb = []
+    for count, price, active in pkgs:
+        status = "✅" if active else "❌"
+        kb.append([
+            InlineKeyboardButton(f"{count} پخشی", callback_data="noop"),
+            InlineKeyboardButton(status, callback_data=f"pkg_tog|{count}"),
+            InlineKeyboardButton(f"نرخ ({_format_toman(price)}) 💰", callback_data=f"pkg_rate|{count}")
+        ])
+    await update.message.reply_text("📦 **ویرایش موجودی ها و نرخ پکیج ها**\nروی آیکون برای فعال/غیرفعال سازی کلیک کنید:", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
+
+async def inventory_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    action, count = query.data.split("|")
+    count = int(count)
+    if action == "pkg_tog":
+        await asyncio.to_thread(update_package, count, toggle=True)
+        pkgs = await asyncio.to_thread(get_packages)
+        kb = []
+        for c, p, a in pkgs:
+            kb.append([
+                InlineKeyboardButton(f"{c} پخشی", callback_data="noop"),
+                InlineKeyboardButton("✅" if a else "❌", callback_data=f"pkg_tog|{c}"),
+                InlineKeyboardButton(f"نرخ ({_format_toman(p)}) 💰", callback_data=f"pkg_rate|{c}")
+            ])
+        await query.edit_message_reply_markup(InlineKeyboardMarkup(kb))
+    elif action == "pkg_rate":
+        context.user_data[UD_STATE] = STATE_EDIT_PKG_PRICE
+        context.user_data['temp_pkg_cnt'] = count
+        await query.message.reply_text(f"💰 نرخ جدید برای پکیج {count} پخشی را به تومان ارسال کنید (فقط عدد):", reply_markup=_back_keyboard())
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user_id = update.effective_user.id
     
-    # Menus and Quick actions
     if text == "پنل مدیریت 🛠" and _is_admin(user_id):
         await update.message.reply_text("پنل مدیریت باز شد:", reply_markup=_admin_panel_keyboard())
     elif text == "⚙️ تنظیمات و ویرایش" and _is_admin(user_id):
@@ -962,7 +1147,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "📊 ویرایش محدودیت روزانه" and _is_admin(user_id):
         context.user_data[UD_STATE] = STATE_EDIT_DAILY_LIMIT
         cur = get_daily_limit()
-        await update.message.reply_text(f"محدودیت فعلی: {cur} پخشی\n\nمحدودیت جدید را به صورت عدد (مثلاً 3000) ارسال کنید:", reply_markup=_back_keyboard())
+        await update.message.reply_text(f"محدودیت فعلی: {cur}\n\nمحدودیت جدید را به صورت عدد (مثلاً 3000) ارسال کنید:", reply_markup=_back_keyboard())
     elif text == "📣 همگانی" and _is_admin(user_id):
         context.user_data[UD_STATE] = STATE_BROADCAST
         await update.message.reply_text("پیام خود را بفرستید. برای لغو روی کنسل کلیک کنید:", reply_markup=_cancel_broadcast_keyboard())
@@ -972,8 +1157,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await takhfif_start(update, context)
     elif text == "🗑️ حذف رزرو" and _is_admin(user_id):
         await on_admin_panel_cancel_reservation(update, context)
-        
-    # User facing actions
     elif text == "🪪 احراز هویت":
         await on_verification(update, context)
     elif text == "📞 ارتباط با ادمین":
@@ -991,7 +1174,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text in [DAY_SAT, DAY_SUN, DAY_MON, DAY_TUE, DAY_WED, DAY_THU, DAY_FRI]:
         await on_day_selected(update, context)
     else:
-        # Let central router process inputs during wizards/flows
         await central_router(update, context)
 
 # Reservation Time Handling
@@ -1020,7 +1202,7 @@ async def on_day_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         pair = rows[i: i+2]
         kb.append([InlineKeyboardButton(pair[0][0], callback_data=pair[0][1])] + ([InlineKeyboardButton(pair[1][0], callback_data=pair[1][1])] if len(pair)>1 else []))
 
-    booked_pakhsh = await asyncio.to_thread(sum_booked_pakhsh, target_date.isoformat())
+    booked_pakhsh = await asyncio.to_thread(sum_booked_package_count_for_date, target_date.isoformat())
     dl = get_daily_limit()
     remain = max(0, dl - booked_pakhsh)
     jdate = jdatetime.date.fromgregorian(date=target_date)
@@ -1070,7 +1252,7 @@ async def reserve_slots_custom(update: Update, context: ContextTypes.DEFAULT_TYP
         slot_dt = datetime.combine(target_date, time(hh, mm), tzinfo=TZ)
         
         # Daily limit check
-        booked_pakhsh = await asyncio.to_thread(sum_booked_pakhsh, target_date.isoformat())
+        booked_pakhsh = await asyncio.to_thread(sum_booked_package_count_for_date, target_date.isoformat())
         dl = get_daily_limit()
         if booked_pakhsh + count > dl:
             await query.answer(f"ظرفیت پخشی تکمیل است.\nباقیمانده: {max(0, dl - booked_pakhsh)}", show_alert=True)
@@ -1121,7 +1303,6 @@ async def reserve_slots_custom(update: Update, context: ContextTypes.DEFAULT_TYP
         card_text = get_setting("card_number_text", DEFAULT_CARD_TEXT)
         await query.edit_message_text(f"💳 مبلغ: {_format_toman(price)}\n\n{card_text}")
 
-# Callbacks for specific features
 async def on_verification_decision(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
