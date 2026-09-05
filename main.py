@@ -62,7 +62,7 @@ except Exception:
     TZ = ZoneInfo("UTC")
 
 def _parse_daily_limit(raw: str) -> int:
-    s = (raw or "").strip()
+    s = (str(raw) or "").strip()
     if not s: return 3000
     mult = 1
     if s.lower().endswith("k"):
@@ -72,8 +72,6 @@ def _parse_daily_limit(raw: str) -> int:
     except: return 3000
     if mult == 1 and 1 <= v <= 50: return v * 1000
     return max(0, v * mult)
-
-DAILY_LIMIT = _parse_daily_limit(os.getenv("DAILY_LIMIT", "3000"))
 
 OWNER_CHAT_ID_RAW = os.getenv("OWNER_CHAT_ID", "").strip()
 OWNER_CHAT_ID = int(OWNER_CHAT_ID_RAW) if OWNER_CHAT_ID_RAW.isdigit() else None
@@ -140,6 +138,7 @@ STATE_EDIT_WELCOME = "state_edit_welcome"
 STATE_EDIT_CARD = "state_edit_card"
 STATE_EDIT_RATES = "state_edit_rates"
 STATE_EDIT_PKG_PRICE = "state_edit_pkg_price"
+STATE_EDIT_DAILY_LIMIT = "state_edit_daily_limit"
 STATE_TAKHFIF_CODE = "state_takhfif_code"
 STATE_TAKHFIF_USES = "state_takhfif_uses"
 STATE_TAKHFIF_DUR = "state_takhfif_dur"
@@ -322,6 +321,10 @@ def set_setting(key: str, value: str):
     with sqlite3.connect(_db_path()) as con:
         con.execute("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
 
+def get_daily_limit() -> int:
+    # Gets from DB, falls back to .env if empty
+    return _parse_daily_limit(get_setting("daily_limit", os.getenv("DAILY_LIMIT", "3000")))
+
 def get_packages() -> list:
     with sqlite3.connect(_db_path()) as con:
         return con.execute("SELECT count, price, is_active FROM packages ORDER BY count ASC").fetchall()
@@ -430,6 +433,78 @@ def get_verified_card_number(user_id: int):
         r = con.execute("SELECT card_number FROM verified_cards WHERE user_id=?", (user_id,)).fetchone()
         return r[0] if r else None
 
+def create_verification_request(user_id: int, username: str | None, card_number: str, photo_file_id: str) -> int:
+    now_iso = datetime.utcnow().isoformat(timespec="seconds")
+    with sqlite3.connect(_db_path()) as con:
+        return con.execute("INSERT INTO verification_requests(user_id, username, card_number, photo_file_id, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)",
+                           (user_id, username, card_number, photo_file_id, now_iso)).lastrowid
+
+def get_verification_request(req_id: int) -> tuple:
+    with sqlite3.connect(_db_path()) as con:
+        return con.execute("SELECT user_id, username, card_number, status FROM verification_requests WHERE id=?", (req_id,)).fetchone()
+
+def set_verification_status(req_id: int, status: str, reviewer_id: int | None, reason: str | None = None):
+    now_iso = datetime.utcnow().isoformat(timespec="seconds")
+    with sqlite3.connect(_db_path()) as con:
+        con.execute("UPDATE verification_requests SET status=?, reviewed_at=?, reviewer_id=?, decision_reason=? WHERE id=?", (status, now_iso, reviewer_id, reason, req_id))
+
+def upsert_verified_card(user_id: int, username: str | None, card_number: str, verifier_id: int | None):
+    now_iso = datetime.utcnow().isoformat(timespec="seconds")
+    with sqlite3.connect(_db_path()) as con:
+        con.execute("""INSERT INTO verified_cards(user_id, username, card_number, verified_at, verifier_id) VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT(user_id) DO UPDATE SET username=excluded.username, card_number=excluded.card_number, verified_at=excluded.verified_at, verifier_id=excluded.verifier_id""",
+                    (user_id, username, card_number, now_iso, verifier_id))
+
+def normalize_discount_code(code: str) -> str:
+    return code.strip().lower()
+
+def create_discount_code(code: str, percent: int, amount_toman: int | None, max_uses: int, expires_at_iso: str, package_count: int | None, created_by: int):
+    now_iso = datetime.utcnow().isoformat(timespec="seconds")
+    norm = normalize_discount_code(code)
+    with sqlite3.connect(_db_path()) as con:
+        con.execute("INSERT INTO discount_codes(code, percent, amount_toman, max_uses, used_count, created_at, created_by, expires_at, package_count, is_active) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, 1)",
+                    (norm, int(percent), amount_toman, int(max_uses), now_iso, int(created_by), expires_at_iso, package_count))
+
+def cancel_booked_reservation_by_reserved_at(reserved_at: datetime) -> int:
+    reserved_iso = reserved_at.isoformat(timespec="seconds")
+    with sqlite3.connect(_db_path()) as con:
+        cur = con.execute("UPDATE reservations SET status='cancelled' WHERE reserved_at=? AND status='booked'", (reserved_iso,))
+        return int(cur.rowcount or 0)
+
+# Other required legacy DB overrides 
+def get_slot_owner_user_id(reserved_at: datetime) -> int | None:
+    reserved_iso = reserved_at.isoformat(timespec="seconds")
+    with sqlite3.connect(_db_path()) as con:
+        row = con.execute("SELECT user_id FROM reservations WHERE reserved_at = ? AND status = 'booked' LIMIT 1", (reserved_iso,)).fetchone()
+    return int(row[0]) if row else None
+
+def sum_booked_package_count_for_date(date_iso: str) -> int:
+    with sqlite3.connect(_db_path()) as con:
+        row = con.execute("SELECT COALESCE(SUM(COALESCE(package_count, 1)), 0) FROM reservations WHERE status = 'booked' AND substr(reserved_at, 1, 10) = ?", (date_iso,)).fetchone()
+    return int(row[0] or 0)
+
+def try_hold_slot_pending_payment(user_id: int, reserved_at: datetime) -> int | None:
+    created_at = datetime.utcnow().isoformat(timespec="seconds")
+    reserved_iso = reserved_at.isoformat(timespec="seconds")
+    with sqlite3.connect(_db_path()) as con:
+        booked = con.execute("SELECT 1 FROM reservations WHERE reserved_at = ? AND status = 'booked' LIMIT 1", (reserved_iso,)).fetchone()
+        if booked: return None
+        cur = con.execute("INSERT INTO reservations(user_id, reserved_at, created_at, status) VALUES (?, ?, ?, 'pending_payment')", (int(user_id), reserved_iso, created_at))
+        return int(cur.lastrowid)
+
+def try_book_reservation(reservation_id: int) -> bool:
+    try:
+        with sqlite3.connect(_db_path()) as con:
+            con.execute("UPDATE reservations SET status = 'booked' WHERE id = ?", (int(reservation_id),))
+        return True
+    except sqlite3.IntegrityError:
+        return False
+
+def list_broadcast_user_ids() -> list[int]:
+    with sqlite3.connect(_db_path()) as con:
+        rows = con.execute("SELECT user_id FROM users WHERE unsubscribed_at IS NULL ORDER BY first_seen_at ASC").fetchall()
+    return [int(r[0]) for r in rows]
+
 # ==========================================
 # UTILITIES
 # ==========================================
@@ -471,6 +546,37 @@ def _parse_toman_amount(text: str) -> int | None:
         return None
     return int(v) * int(mult)
 
+def _parse_duration_to_timedelta(text: str) -> timedelta | None:
+    t = text.strip()
+    m = re.fullmatch(r"(\d+)\s*(روز|ساعت|دقیقه)", t)
+    if not m:
+        m = re.fullmatch(r"(\d+)\s*([dhm])", t, flags=re.IGNORECASE)
+    if not m:
+        return None
+    value = int(m.group(1))
+    unit = m.group(2).lower()
+    if value <= 0: return None
+    if unit in ("روز", "d"): return timedelta(days=value)
+    if unit in ("ساعت", "h"): return timedelta(hours=value)
+    if unit in ("دقیقه", "m"): return timedelta(minutes=value)
+    return None
+
+def _normalize_card_number(text: str) -> str | None:
+    compact = re.sub(r"[\s-]", "", text.strip()).translate(FA_TO_EN_DIGITS)
+    if not re.fullmatch(r"[0-9]{16}", compact): return None
+    return compact
+
+def _normalize_hhmm(text: str) -> str | None:
+    raw = (text or "").strip().translate(FA_TO_EN_DIGITS)
+    if not re.fullmatch(r"\d{1,2}:\d{2}", raw): return None
+    hh_s, mm_s = raw.split(":", 1)
+    try:
+        hh = int(hh_s)
+        mm = int(mm_s)
+    except: return None
+    if not (0 <= hh <= 23 and 0 <= mm <= 59): return None
+    return f"{hh:02d}:{mm:02d}"
+
 def _format_seen_at(seen_at_iso_utc: str | None) -> str:
     if not seen_at_iso_utc:
         return "نامشخص"
@@ -496,40 +602,6 @@ def _next_date_for_persian_weekday(selected_persian_weekday: int, now: datetime)
 def _time_slots() -> list[time]:
     return [time(20, 30), time(21, 0), time(21, 30), time(22, 0), time(22, 30), time(23, 0)]
 
-# Missing original functions implementation (included to satisfy original workflow requirements)
-def get_slot_owner_user_id(reserved_at: datetime) -> int | None:
-    reserved_iso = reserved_at.isoformat(timespec="seconds")
-    with sqlite3.connect(_db_path()) as con:
-        row = con.execute("SELECT user_id FROM reservations WHERE reserved_at = ? AND status = 'booked' LIMIT 1", (reserved_iso,)).fetchone()
-    return int(row[0]) if row else None
-
-def sum_booked_package_count_for_date(date_iso: str) -> int:
-    with sqlite3.connect(_db_path()) as con:
-        row = con.execute("SELECT COALESCE(SUM(COALESCE(package_count, 1)), 0) FROM reservations WHERE status = 'booked' AND substr(reserved_at, 1, 10) = ?", (date_iso,)).fetchone()
-    return int(row[0] or 0)
-
-def try_hold_slot_pending_payment(user_id: int, reserved_at: datetime) -> int | None:
-    created_at = datetime.utcnow().isoformat(timespec="seconds")
-    reserved_iso = reserved_at.isoformat(timespec="seconds")
-    with sqlite3.connect(_db_path()) as con:
-        booked = con.execute("SELECT 1 FROM reservations WHERE reserved_at = ? AND status = 'booked' LIMIT 1", (reserved_iso,)).fetchone()
-        if booked: return None
-        cur = con.execute("INSERT INTO reservations(user_id, reserved_at, created_at, status) VALUES (?, ?, ?, 'pending_payment')", (int(user_id), reserved_iso, created_at))
-        return int(cur.lastrowid)
-
-def try_book_reservation(reservation_id: int) -> bool:
-    try:
-        with sqlite3.connect(_db_path()) as con:
-            con.execute("UPDATE reservations SET status = 'booked' WHERE id = ?", (int(reservation_id),))
-        return True
-    except sqlite3.IntegrityError:
-        return False
-
-def list_broadcast_user_ids() -> list[int]:
-    with sqlite3.connect(_db_path()) as con:
-        rows = con.execute("SELECT user_id FROM users WHERE unsubscribed_at IS NULL ORDER BY first_seen_at ASC").fetchall()
-    return [int(r[0]) for r in rows]
-
 # ==========================================
 # KEYBOARDS
 # ==========================================
@@ -554,6 +626,7 @@ def _settings_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup([
         [KeyboardButton("📝 ویرایش خوش امدگویی"), KeyboardButton("💳 ویرایش شماره کارت")],
         [KeyboardButton("📜 ویرایش متن نرخ"), KeyboardButton("📦 ویرایش موجودی ها")],
+        [KeyboardButton("📊 ویرایش محدودیت روزانه")],
         [KeyboardButton("🔙 بازگشت به پنل")]
     ], resize_keyboard=True)
 
@@ -610,62 +683,44 @@ async def handle_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text("منوی اصلی 🏠:", reply_markup=_main_menu_keyboard(update.effective_user.id))
     raise ApplicationHandlerStop
 
-async def account_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+# ----------------- RE-ADDED ORIGINAL FEATURES -----------------
+async def on_verification(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await check_membership_gate(update, context): return
-    user_id = update.effective_user.id
-    bal = await asyncio.to_thread(get_wallet_balance, user_id)
-    
-    card = await asyncio.to_thread(get_verified_card_number, user_id)
-    v_status = f"تایید شده ✅ ({card})" if card else "تایید نشده ❌"
-    
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ افزایش اعتبار", callback_data="wallet_charge")]
-    ])
+    context.user_data[UD_STATE] = STATE_VERIF_PHOTO
+    context.user_data.pop(UD_VERIFICATION_REQUEST_ID, None)
     await update.message.reply_text(
-        f"👛 **کیف پول و حساب کاربری شما**\n\n"
-        f"🆔 آیدی شما: `{user_id}`\n"
-        f"💳 وضعیت احراز هویت: {v_status}\n"
-        f"💰 موجودی فعلی: {_format_toman(bal)}\n\n"
-        "برای شارژ حساب روی دکمه زیر کلیک کنید👇",
-        reply_markup=kb, parse_mode="Markdown"
+        "به بخش احراز هویت خوش آمدید.\n"
+        "نکات :\n"
+        "1) شماره کارت و نام صاحب کارت کاملا مشخص باشد.\n"
+        "2) لطفا تاریخ اعتبار و Cvv2 کارت خود را بپوشانید!\n"
+        "3) فقط با کارتی که احراز هویت میکنید میتوانید خرید انجام بدید و اگر با کارت دیگری اقدام کنید تراکنش ناموفق میشود و هزینه از سمت خودِ بانک به شما بازگشت داده میشود.\n"
+        "4) در صورتی که توانایی ارسال عکس از کارت را ندارید تنها راه حل ارسال عکس از کارت ملی یا شناسنامه صاحب کارت است.\n\n"
+        "لطفا عکس از کارتی که میخواهید با آن خرید انجام دهید ارسال کنید.",
+        reply_markup=_back_keyboard(),
     )
 
-async def wallet_charge_init(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    await query.answer()
-    context.user_data[UD_STATE] = STATE_WALLET_AMOUNT
-    await query.message.reply_text("مبلغ مورد نظر برای شارژ را به تومان وارد کنید (مثلا 100000) 💸:", reply_markup=_back_keyboard())
-
-# Referral System
-async def referral_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def on_contact_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await check_membership_gate(update, context): return
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔗 ایجاد لینک زیر مجموعه", callback_data="ref_create")],
-        [InlineKeyboardButton("📋 لیست زیر مجموعه ها", callback_data="ref_list")]
-    ])
     await update.message.reply_text(
-        "👥 **بخش زیرمجموعه گیری**\n\n"
-        "با دعوت دوستان خود به ربات، از هر خرید آنها **۵٪ پورسانت** به کیف پول شما واریز می‌شود! 🎁",
-        reply_markup=kb, parse_mode="Markdown"
+        "برای ارتباط با ادمین/پشتیبانی یا راهنمایی خرید، به یکی از آیدی های زیر پیام بده:\n\n"
+        "@silverrmb\n"
+        "@OLDKASEB\n\n"
+        "پشتیبانی سریع تر: لطفاً آیدی عددی + اسکرین شات مشکل/رسید + توضیح کوتاه رو هم بفرست.",
+        reply_markup=_back_keyboard(),
+        disable_web_page_preview=True,
     )
 
-async def ref_actions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    user_id = update.effective_user.id
-    await query.answer()
-    if query.data == "ref_create":
-        bot_usr = context.bot.username
-        link = f"https://t.me/{bot_usr}?start=ref_{user_id}"
-        await query.message.reply_text(f"لینک اختصاصی شما برای دعوت:\n\n{link}\n\nاین لینک را برای دوستان خود بفرستید! 📤")
-    elif query.data == "ref_list":
-        refs = await asyncio.to_thread(get_referrals, user_id)
-        if not refs:
-            await query.message.reply_text("شما هنوز زیرمجموعه‌ای ندارید! 😔")
-            return
-        kb = [[InlineKeyboardButton(f"👤 {u[1] or u[0]}", url=f"tg://user?id={u[0]}")] for u in refs]
-        await query.message.reply_text(f"لیست زیرمجموعه‌های شما ({_to_fa_digits(str(len(refs)))} نفر):", reply_markup=InlineKeyboardMarkup(kb))
+async def on_admin_panel_cancel_reservation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await check_membership_gate(update, context): return
+    context.user_data[UD_STATE] = STATE_ADMIN_CANCEL_DAY
+    await update.message.reply_text("چه روزی رو می‌خواید لغو/حذف کنید؟ (مثال: شنبه)", reply_markup=_reserve_days_keyboard())
 
-# Routing all text/photo based on STATE
+async def takhfif_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data.clear()
+    context.user_data[UD_STATE] = STATE_TAKHFIF_CODE
+    await update.message.reply_text("کد تخفیف را ارسال کنید (مثال: mobin)", reply_markup=_back_keyboard())
+
+# ----------------- ROUTERS & CENTRAL TEXT PROCESSOR -----------------
 async def central_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     msg = update.message
     user = update.effective_user
@@ -678,7 +733,7 @@ async def central_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Broadcast
     if state == STATE_BROADCAST and _is_admin(user.id):
-        context.user_data[UD_STATE] = None
+        context.user_data.clear()
         users = await asyncio.to_thread(list_broadcast_user_ids)
         await msg.reply_text(f"در حال ارسال به {len(users)} نفر... ⏳")
         sent = 0
@@ -689,6 +744,132 @@ async def central_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await asyncio.sleep(BROADCAST_SLEEP_SECONDS)
             except: pass
         await msg.reply_text(f"ارسال همگانی پایان یافت ✅\nموفق: {sent}", reply_markup=_admin_panel_keyboard())
+        return
+
+    # Verification Flow (Photos & Text)
+    if state == STATE_VERIF_PHOTO and getattr(msg, "photo", None):
+        context.user_data["verification_card_photo_file_id"] = msg.photo[-1].file_id
+        context.user_data[UD_STATE] = STATE_VERIF_CARD
+        await msg.reply_text("• لطفا شماره کارت خود را به صورت اعداد انگلیسی ارسال کنید\nدر صورتی که منصرف شدید دکمه بازگشت را بزنید.", reply_markup=_back_keyboard())
+        return
+        
+    if state == STATE_VERIF_CARD and msg.text:
+        card = _normalize_card_number(msg.text)
+        if not card:
+            await msg.reply_text("شماره کارت نامعتبر است. لطفاً فقط ۱۶ رقم انگلیسی ارسال کنید (بدون حروف).")
+            return
+        photo_file_id = context.user_data.get("verification_card_photo_file_id")
+        username = f"@{user.username}" if user.username else None
+        request_id = await asyncio.to_thread(create_verification_request, user.id, username, card, photo_file_id)
+        
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("تایید ✅", callback_data=f"{CB_VERIF_PREFIX}{request_id}|approve")],
+            [
+                InlineKeyboardButton("اشتباه ❌", callback_data=f"{CB_VERIF_PREFIX}{request_id}|reject_wrong"),
+                InlineKeyboardButton("کامل نیست ❌", callback_data=f"{CB_VERIF_PREFIX}{request_id}|reject_incomplete"),
+            ],
+        ])
+        for adm in BOT_ADMIN_IDS:
+            try:
+                await context.bot.send_photo(adm, photo_file_id, caption=f"درخواست احراز هویت\nآیدی: {user.id}\nیوزرنیم: {username}\nکارت: {card}\nکد: {request_id}", reply_markup=kb)
+            except: pass
+        context.user_data.clear()
+        await msg.reply_text("درخواست شما برای بررسی ارسال شد ⏳", reply_markup=_main_menu_keyboard(user.id))
+        return
+
+    # Cancel Reservation Wizard (Admin)
+    if state == STATE_ADMIN_CANCEL_DAY and _is_admin(user.id) and msg.text:
+        persian_weekday = DAY_TO_PERSIAN_WEEKDAY.get(msg.text.strip())
+        if persian_weekday is None:
+            await msg.reply_text("روز نامعتبر است. یکی از روزهای هفته مثل «شنبه» را ارسال کنید.")
+            return
+        now = datetime.now(TZ)
+        target_date = _next_date_for_persian_weekday(int(persian_weekday), now)
+        context.user_data[STATE_ADMIN_CANCEL_DAY] = target_date.isoformat()
+        context.user_data[UD_STATE] = STATE_ADMIN_CANCEL_TIME
+        jdate = jdatetime.date.fromgregorian(date=target_date)
+        date_str = f"{jdate.year:04d}/{jdate.month:02d}/{jdate.day:02d}".translate(PERSIAN_DIGITS)
+        await msg.reply_text(f"اوکی. برای تاریخ {date_str} چه ساعتی رو می‌خواید لغو کنید؟ (مثال: 20:30)", reply_markup=_back_keyboard())
+        return
+
+    if state == STATE_ADMIN_CANCEL_TIME and _is_admin(user.id) and msg.text:
+        date_iso = context.user_data.get(STATE_ADMIN_CANCEL_DAY)
+        hhmm = _normalize_hhmm(msg.text)
+        if not hhmm:
+            await msg.reply_text("ساعت نامعتبر است. فرمت صحیح مثل 20:30")
+            return
+        target_date = datetime.fromisoformat(date_iso).date()
+        hh, mm = map(int, hhmm.split(":", 1))
+        slot_dt = datetime.combine(target_date, time(hh, mm), tzinfo=TZ)
+        affected = await asyncio.to_thread(cancel_booked_reservation_by_reserved_at, slot_dt)
+        context.user_data.clear()
+        if affected <= 0:
+            await msg.reply_text("برای این روز/ساعت رزرو قطعی پیدا نشد (یا قبلاً لغو شده).", reply_markup=_admin_panel_keyboard())
+        else:
+            jdate = jdatetime.date.fromgregorian(date=slot_dt.date())
+            date_str = f"{jdate.year:04d}/{jdate.month:02d}/{jdate.day:02d}".translate(PERSIAN_DIGITS)
+            time_str = slot_dt.strftime("%H:%M").translate(PERSIAN_DIGITS)
+            await msg.reply_text(f"رزرو {date_str} - {time_str} با موفقیت لغو شد ✅\nالان این تایم برای کاربران آزاد نمایش داده می‌شود.", reply_markup=_admin_panel_keyboard())
+        return
+
+    # Takhfif Wizard (Admin)
+    if state == STATE_TAKHFIF_CODE and _is_admin(user.id) and msg.text:
+        if not re.fullmatch(r"[A-Za-z0-9_\-]{2,64}", msg.text):
+            await msg.reply_text("کد نامعتبر است. فقط حروف/عدد انگلیسی و _ یا - مجاز است.")
+            return
+        context.user_data['t_code'] = normalize_discount_code(msg.text)
+        context.user_data[UD_STATE] = STATE_TAKHFIF_USES
+        await msg.reply_text("این کد چند بار قابل استفاده باشد؟ (مثال: 5)")
+        return
+        
+    if state == STATE_TAKHFIF_USES and _is_admin(user.id) and msg.text:
+        if not msg.text.isdigit() or int(msg.text) <= 0:
+            await msg.reply_text("عدد نامعتبر است.")
+            return
+        context.user_data['t_uses'] = int(msg.text)
+        context.user_data[UD_STATE] = STATE_TAKHFIF_DUR
+        await msg.reply_text("مدت اعتبار را ارسال کنید (مثال: 20 روز | 20 ساعت | 20 دقیقه)")
+        return
+
+    if state == STATE_TAKHFIF_DUR and _is_admin(user.id) and msg.text:
+        delta = _parse_duration_to_timedelta(msg.text)
+        if not delta:
+            await msg.reply_text("فرمت مدت نامعتبر است.")
+            return
+        now_utc_dt = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
+        context.user_data['t_dur'] = (now_utc_dt + delta).replace(tzinfo=None).isoformat(timespec="seconds")
+        context.user_data[UD_STATE] = STATE_TAKHFIF_AMT
+        await msg.reply_text("مبلغ تخفیف چند تومان باشد؟ (مثال: 100000)")
+        return
+
+    if state == STATE_TAKHFIF_AMT and _is_admin(user.id) and msg.text:
+        amt = _parse_toman_amount(msg.text)
+        if not amt:
+            await msg.reply_text("مبلغ نامعتبر است.")
+            return
+        context.user_data['t_amt'] = amt
+        context.user_data[UD_STATE] = STATE_TAKHFIF_PKG
+        pkgs = await asyncio.to_thread(get_packages)
+        kb = []
+        row = []
+        for c, _, _ in pkgs:
+            row.append(InlineKeyboardButton(f"{c} پخشی", callback_data=f"{CB_TAKHFIF_PKG_PREFIX}{c}"))
+            if len(row) == 2:
+                kb.append(row)
+                row = []
+        if row: kb.append(row)
+        await msg.reply_text("این تخفیف روی کدام پکیج اعمال شود؟", reply_markup=InlineKeyboardMarkup(kb))
+        return
+
+    # Admin Edits Daily Limit
+    if state == STATE_EDIT_DAILY_LIMIT and _is_admin(user.id) and msg.text:
+        new_limit = _parse_daily_limit(msg.text)
+        if new_limit <= 0:
+            await msg.reply_text("لطفاً یک عدد معتبر ارسال کنید.")
+            return
+        await asyncio.to_thread(set_setting, "daily_limit", str(new_limit))
+        context.user_data.clear()
+        await msg.reply_text(f"محدودیت روزانه با موفقیت به {new_limit} پخشی تغییر یافت ✅", reply_markup=_admin_panel_keyboard())
         return
 
     # Wallet Charge
@@ -728,7 +909,7 @@ async def central_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await msg.reply_text("فیش شما ارسال شد و در انتظار تایید ادمین است ⏳", reply_markup=_main_menu_keyboard(user.id))
         return
 
-    # Admin Settings Edits
+    # Admin Settings Edits (Texts)
     if state == STATE_EDIT_WELCOME and _is_admin(user.id) and msg.text:
         context.user_data['temp_edit'] = msg.text
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("بله 🟢", callback_data="edit_ok|welcome"), InlineKeyboardButton("خیر 🔴", callback_data="edit_no")]])
@@ -750,181 +931,53 @@ async def central_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             pkg_cnt = context.user_data['temp_pkg_cnt']
             await asyncio.to_thread(update_package, pkg_cnt, price=val)
             context.user_data.clear()
-            await msg.reply_text("قیمت با موفقیت آپدیت شد ✅")
+            await msg.reply_text("قیمت با موفقیت آپدیت شد ✅", reply_markup=_settings_menu_keyboard())
         except:
             await msg.reply_text("عدد نامعتبر!")
         return
 
-async def admin_edits_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    if data == "edit_no":
-        context.user_data.clear()
-        await query.edit_message_text("عملیات لغو شد ❌")
-        return
-    if data.startswith("edit_ok|"):
-        key = data.split("|")[1]
-        val = context.user_data.get('temp_edit')
-        db_key = "welcome_text" if key=="welcome" else ("card_number_text" if key=="card" else "rates_text")
-        await asyncio.to_thread(set_setting, db_key, val)
-        context.user_data.clear()
-        await query.edit_message_text("تغییرات با موفقیت ذخیره شد ✅")
-
-async def wallet_admin_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    data = query.data
-    _, req_id = data.split("|")
-    req_id = int(req_id)
-    req = await asyncio.to_thread(get_wallet_req, req_id)
-    if not req or req[2] != 'pending':
-        await query.answer("قبلا بررسی شده!")
-        return
-    
-    if data.startswith("wal_ok"):
-        await asyncio.to_thread(add_wallet_balance, req[0], req[1])
-        await asyncio.to_thread(update_wallet_req, req_id, 'approved')
-        await query.edit_message_caption(caption=query.message.caption + "\n\nتایید شد ✅")
-        try:
-            await context.bot.send_message(req[0], f"مبلغ {_format_toman(req[1])} با موفقیت به کیف پول شما اضافه شد ✅")
-        except: pass
-    else:
-        await asyncio.to_thread(update_wallet_req, req_id, 'rejected')
-        await query.edit_message_caption(caption=query.message.caption + "\n\nرد شد ❌")
-        try:
-            await context.bot.send_message(req[0], f"درخواست شارژ کیف پول شما رد شد ❌")
-        except: pass
-
-async def wallet_paid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data[UD_STATE] = STATE_WALLET_RECEIPT
-    await query.message.reply_text("📸 لطفاً عکس فیش واریزی خود را ارسال کنید:")
-
-# Admin Stats Pagination
-async def show_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE, offset=0):
-    tu, a24, a7d, a30, rb, pa, va = await asyncio.to_thread(get_admin_stats_detailed)
-    text = (
-        "📊 **آمار خفن ربات**\n\n"
-        f"👥 کل کاربران: `{tu}`\n"
-        f"🔥 فعال ۲۴ ساعت: `{a24}`\n"
-        f"📅 فعال ۷ روز: `{a7d}`\n"
-        f"🗓 فعال ۳۰ روز: `{a30}`\n\n"
-        f"✅ رزروهای قطعی: `{rb}`\n"
-        f"💳 پرداخت موفق: `{pa}`\n"
-        f"🪪 احراز هویت تایید شده: `{va}`\n\n"
-        "👇 لیست کاربران:"
-    )
-    
-    limit = 10
-    with sqlite3.connect(_db_path()) as con:
-        users = con.execute("SELECT user_id, username FROM users ORDER BY first_seen_at DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
-    
-    kb = []
-    for u in users:
-        name = u[1] if u[1] else str(u[0])
-        kb.append([InlineKeyboardButton(f"👤 {name}", callback_data=f"adm_usr|{u[0]}")])
-    
-    nav = []
-    if offset > 0: nav.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"adm_pg|{offset-limit}"))
-    if len(users) == limit: nav.append(InlineKeyboardButton("بعدی ➡️", callback_data=f"adm_pg|{offset+limit}"))
-    if nav: kb.append(nav)
-
-    if update.callback_query:
-        try: await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
-        except: pass
-    else:
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
-
-async def admin_user_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    uid = int(query.data.split("|")[1])
-    
-    with sqlite3.connect(_db_path()) as con:
-        u = con.execute("SELECT first_seen_at, wallet_balance, referrer_id FROM users WHERE user_id=?", (uid,)).fetchone()
-        rb = con.execute("SELECT COUNT(*) FROM reservations WHERE user_id=? AND status='booked'", (uid,)).fetchone()[0]
-        card = con.execute("SELECT card_number FROM verified_cards WHERE user_id=?", (uid,)).fetchone()
-    
-    card_str = f"✅ تایید شده ({card[0]})" if card else "❌ تایید نشده"
-    
-    text = (
-        f"🔍 **پروفایل حرفه‌ای کاربر**\n\n"
-        f"🆔 آیدی عددی: `{uid}`\n"
-        f"🪪 احراز هویت: {card_str}\n"
-        f"👛 موجودی کیف پول: {_format_toman(u[1])}\n"
-        f"✅ تعداد رزروهای موفق: `{rb}`\n"
-        f"📅 تاریخ استارت: `{_format_seen_at(u[0])}`\n"
-    )
-    
-    try:
-        photos = await context.bot.get_user_profile_photos(uid, limit=1)
-        if photos.total_count > 0:
-            await query.message.reply_photo(photos.photos[0][-1].file_id, caption=text, parse_mode="Markdown")
-        else:
-            await query.message.reply_text(text, parse_mode="Markdown")
-    except Exception:
-        await query.message.reply_text(text, parse_mode="Markdown")
-
-async def inventory_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pkgs = await asyncio.to_thread(get_packages)
-    kb = []
-    for count, price, active in pkgs:
-        status = "✅" if active else "❌"
-        kb.append([
-            InlineKeyboardButton(f"{count} پخشی", callback_data="noop"),
-            InlineKeyboardButton(status, callback_data=f"pkg_tog|{count}"),
-            InlineKeyboardButton(f"نرخ ({_format_toman(price)}) 💰", callback_data=f"pkg_rate|{count}")
-        ])
-    await update.message.reply_text("📦 **ویرایش موجودی ها و نرخ پکیج ها**\nروی آیکون برای فعال/غیرفعال سازی کلیک کنید:", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
-
-async def inventory_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    action, count = query.data.split("|")
-    count = int(count)
-    if action == "pkg_tog":
-        await asyncio.to_thread(update_package, count, toggle=True)
-        pkgs = await asyncio.to_thread(get_packages)
-        kb = []
-        for c, p, a in pkgs:
-            kb.append([
-                InlineKeyboardButton(f"{c} پخشی", callback_data="noop"),
-                InlineKeyboardButton("✅" if a else "❌", callback_data=f"pkg_tog|{c}"),
-                InlineKeyboardButton(f"نرخ ({_format_toman(p)}) 💰", callback_data=f"pkg_rate|{c}")
-            ])
-        await query.edit_message_reply_markup(InlineKeyboardMarkup(kb))
-    elif action == "pkg_rate":
-        context.user_data[UD_STATE] = STATE_EDIT_PKG_PRICE
-        context.user_data['temp_pkg_cnt'] = count
-        await query.message.reply_text(f"💰 نرخ جدید برای پکیج {count} پخشی را به تومان ارسال کنید (فقط عدد):", reply_markup=_back_keyboard())
-
-
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    if text == "پنل مدیریت 🛠" and _is_admin(update.effective_user.id):
+    user_id = update.effective_user.id
+    
+    # Menus and Quick actions
+    if text == "پنل مدیریت 🛠" and _is_admin(user_id):
         await update.message.reply_text("پنل مدیریت باز شد:", reply_markup=_admin_panel_keyboard())
-    elif text == "⚙️ تنظیمات و ویرایش" and _is_admin(update.effective_user.id):
+    elif text == "⚙️ تنظیمات و ویرایش" and _is_admin(user_id):
         await update.message.reply_text("بخش تنظیمات:", reply_markup=_settings_menu_keyboard())
-    elif text == "📝 ویرایش خوش امدگویی" and _is_admin(update.effective_user.id):
+    elif text == "📝 ویرایش خوش امدگویی" and _is_admin(user_id):
         context.user_data[UD_STATE] = STATE_EDIT_WELCOME
         cur = get_setting("welcome_text", DEFAULT_WELCOME_TEXT)
         await update.message.reply_text(f"متن فعلی خوش امدگویی:\n\n{cur}\n\nمتن جدید را ارسال کنید:", reply_markup=_back_keyboard())
-    elif text == "💳 ویرایش شماره کارت" and _is_admin(update.effective_user.id):
+    elif text == "💳 ویرایش شماره کارت" and _is_admin(user_id):
         context.user_data[UD_STATE] = STATE_EDIT_CARD
         cur = get_setting("card_number_text", DEFAULT_CARD_TEXT)
         await update.message.reply_text(f"متن فعلی کارت:\n\n{cur}\n\nمتن جدید را ارسال کنید:", reply_markup=_back_keyboard())
-    elif text == "📜 ویرایش متن نرخ" and _is_admin(update.effective_user.id):
+    elif text == "📜 ویرایش متن نرخ" and _is_admin(user_id):
         context.user_data[UD_STATE] = STATE_EDIT_RATES
         cur = get_setting("rates_text", DEFAULT_RATES_TEXT)
         await update.message.reply_text(f"متن فعلی نرخ:\n\n{cur}\n\nمتن جدید را ارسال کنید:", reply_markup=_back_keyboard())
-    elif text == "📦 ویرایش موجودی ها" and _is_admin(update.effective_user.id):
+    elif text == "📦 ویرایش موجودی ها" and _is_admin(user_id):
         await inventory_menu(update, context)
-    elif text == "📣 همگانی" and _is_admin(update.effective_user.id):
+    elif text == "📊 ویرایش محدودیت روزانه" and _is_admin(user_id):
+        context.user_data[UD_STATE] = STATE_EDIT_DAILY_LIMIT
+        cur = get_daily_limit()
+        await update.message.reply_text(f"محدودیت فعلی: {cur} پخشی\n\nمحدودیت جدید را به صورت عدد (مثلاً 3000) ارسال کنید:", reply_markup=_back_keyboard())
+    elif text == "📣 همگانی" and _is_admin(user_id):
         context.user_data[UD_STATE] = STATE_BROADCAST
         await update.message.reply_text("پیام خود را بفرستید. برای لغو روی کنسل کلیک کنید:", reply_markup=_cancel_broadcast_keyboard())
-    elif text == "📊 آمار" and _is_admin(update.effective_user.id):
+    elif text == "📊 آمار" and _is_admin(user_id):
         await show_admin_stats(update, context)
+    elif text == "🎟️ کد تخفیف" and _is_admin(user_id):
+        await takhfif_start(update, context)
+    elif text == "🗑️ حذف رزرو" and _is_admin(user_id):
+        await on_admin_panel_cancel_reservation(update, context)
+        
+    # User facing actions
+    elif text == "🪪 احراز هویت":
+        await on_verification(update, context)
+    elif text == "📞 ارتباط با ادمین":
+        await on_contact_admin(update, context)
     elif text == "💳 حساب کاربری":
         await account_menu(update, context)
     elif text == "👥 زیر مجموعه گیری":
@@ -938,6 +991,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text in [DAY_SAT, DAY_SUN, DAY_MON, DAY_TUE, DAY_WED, DAY_THU, DAY_FRI]:
         await on_day_selected(update, context)
     else:
+        # Let central router process inputs during wizards/flows
         await central_router(update, context)
 
 # Reservation Time Handling
@@ -967,13 +1021,14 @@ async def on_day_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         kb.append([InlineKeyboardButton(pair[0][0], callback_data=pair[0][1])] + ([InlineKeyboardButton(pair[1][0], callback_data=pair[1][1])] if len(pair)>1 else []))
 
     booked_pakhsh = await asyncio.to_thread(sum_booked_pakhsh, target_date.isoformat())
-    remain = max(0, DAILY_LIMIT - booked_pakhsh)
+    dl = get_daily_limit()
+    remain = max(0, dl - booked_pakhsh)
     jdate = jdatetime.date.fromgregorian(date=target_date)
     date_str = f"{jdate.year:04d}/{jdate.month:02d}/{jdate.day:02d}".translate(PERSIAN_DIGITS)
 
     txt = (
         f"رزرو تایم\n"
-        f"محدودیت روزانه: {_to_fa_digits(str(DAILY_LIMIT))} کا | رزرو شده: {_to_fa_digits(str(booked_pakhsh))} | باقیمانده: {_to_fa_digits(str(remain))}\n\n"
+        f"محدودیت روزانه: {_to_fa_digits(str(dl))} | رزرو شده: {_to_fa_digits(str(booked_pakhsh))} | باقیمانده: {_to_fa_digits(str(remain))}\n\n"
         f"تاریخ: {date_str}\n\n"
         f"✅ آزاد | ❌ رزرو شده"
     )
@@ -1014,6 +1069,13 @@ async def reserve_slots_custom(update: Update, context: ContextTypes.DEFAULT_TYP
         hh, mm = map(int, hhmm.split(":", 1))
         slot_dt = datetime.combine(target_date, time(hh, mm), tzinfo=TZ)
         
+        # Daily limit check
+        booked_pakhsh = await asyncio.to_thread(sum_booked_pakhsh, target_date.isoformat())
+        dl = get_daily_limit()
+        if booked_pakhsh + count > dl:
+            await query.answer(f"ظرفیت پخشی تکمیل است.\nباقیمانده: {max(0, dl - booked_pakhsh)}", show_alert=True)
+            return
+
         reservation_id = await asyncio.to_thread(try_hold_slot_pending_payment, user.id, slot_dt)
         if not reservation_id:
             await query.answer("این تایم همین الان رزرو شد.", show_alert=True)
@@ -1059,6 +1121,61 @@ async def reserve_slots_custom(update: Update, context: ContextTypes.DEFAULT_TYP
         card_text = get_setting("card_number_text", DEFAULT_CARD_TEXT)
         await query.edit_message_text(f"💳 مبلغ: {_format_toman(price)}\n\n{card_text}")
 
+# Callbacks for specific features
+async def on_verification_decision(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    if not _is_admin(update.effective_user.id): return
+    
+    try:
+        _, rest = query.data.split("verif|", 1)
+        req_id_str, action = rest.split("|", 1)
+        request_id = int(req_id_str)
+    except: return
+
+    req = await asyncio.to_thread(get_verification_request, request_id)
+    if not req or req[3] != "pending":
+        await query.answer("این درخواست قبلاً بررسی شده.", show_alert=True)
+        return
+
+    if action == "approve":
+        await asyncio.to_thread(set_verification_status, request_id, "approved", update.effective_user.id, None)
+        await asyncio.to_thread(upsert_verified_card, req[0], req[1], req[2], update.effective_user.id)
+        try: await context.bot.send_message(req[0], f"• درخواست احراز هویت کارت ( {req[2]} ) تایید شد. هم اکنون میتوانید رزرو تایم انجام دهید.")
+        except: pass
+        await query.edit_message_caption(caption=(query.message.caption or "") + "\n\nوضعیت: تایید شد ✅", reply_markup=None)
+    elif action == "reject_wrong":
+        await asyncio.to_thread(set_verification_status, request_id, "rejected", update.effective_user.id, "wrong")
+        try: await context.bot.send_message(req[0], f"• درخواست احراز هویت کارت ( {req[2]} ) به دلیل اشتباه بودن عکس رد شد.")
+        except: pass
+        await query.edit_message_caption(caption=(query.message.caption or "") + "\n\nوضعیت: رد شد (اشتباه) ❌", reply_markup=None)
+    elif action == "reject_incomplete":
+        await asyncio.to_thread(set_verification_status, request_id, "rejected", update.effective_user.id, "incomplete")
+        try: await context.bot.send_message(req[0], f"• درخواست احراز هویت کارت ( {req[2]} ) به دلیل کامل نبودن رد شد.")
+        except: pass
+        await query.edit_message_caption(caption=(query.message.caption or "") + "\n\nوضعیت: رد شد (کامل نیست) ❌", reply_markup=None)
+
+async def on_takhfif_package_pick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    if not _is_admin(update.effective_user.id): return
+    if context.user_data.get(UD_STATE) != STATE_TAKHFIF_PKG: return
+    
+    try: pkg = int(query.data.split("|")[1])
+    except: return
+        
+    code = context.user_data.get('t_code')
+    max_uses = context.user_data.get('t_uses')
+    expires_at = context.user_data.get('t_dur')
+    amount_toman = context.user_data.get('t_amt')
+    
+    try:
+        await asyncio.to_thread(create_discount_code, code, 0, amount_toman, max_uses, expires_at, pkg, update.effective_user.id)
+        context.user_data.clear()
+        await query.edit_message_text(f"کد تخفیف با موفقیت ثبت شد ✅\n\nکد: {code}\nمبلغ: {_format_toman(amount_toman)}\nروی پکیج: {pkg} پخشی\nتعداد استفاده: {max_uses}")
+    except Exception:
+        await query.answer("این کد قبلاً ثبت شده است.", show_alert=True)
+
 # Main entry points setup
 def main():
     init_db()
@@ -1073,8 +1190,9 @@ def main():
     app.add_handler(CallbackQueryHandler(wallet_admin_callbacks, pattern=r"^wal_"))
     app.add_handler(CallbackQueryHandler(admin_edits_callback, pattern=r"^edit_"))
     app.add_handler(CallbackQueryHandler(inventory_callback, pattern=r"^pkg_"))
+    app.add_handler(CallbackQueryHandler(on_verification_decision, pattern=r"^verif\|"))
+    app.add_handler(CallbackQueryHandler(on_takhfif_package_pick, pattern=r"^takhpkg\|"))
     
-    # Using Raw Strings (r"") for regex to fix SyntaxWarning
     app.add_handler(CallbackQueryHandler(lambda u,c: show_admin_stats(u,c, int(u.callback_query.data.split("|")[1])), pattern=r"^adm_pg\|"))
     app.add_handler(CallbackQueryHandler(admin_user_profile, pattern=r"^adm_usr\|"))
     app.add_handler(CallbackQueryHandler(reserve_slots_custom, pattern=r"^(slot\||pkg\||payw_)"))
