@@ -76,14 +76,20 @@ def _parse_daily_limit(raw: str) -> int:
 OWNER_CHAT_ID_RAW = os.getenv("OWNER_CHAT_ID", "").strip()
 OWNER_CHAT_ID = int(OWNER_CHAT_ID_RAW) if OWNER_CHAT_ID_RAW.isdigit() else None
 
+SECOND_OWNER_ID_RAW = os.getenv("SECOND_OWNER_ID", "").strip()
+SECOND_OWNER_ID = int(SECOND_OWNER_ID_RAW) if SECOND_OWNER_ID_RAW.isdigit() else None
+
 BOT_ADMIN_IDS_RAW = os.getenv("BOT_ADMIN_IDS", "").strip()
 BOT_ADMIN_IDS: set[int] = set()
 if BOT_ADMIN_IDS_RAW:
     for part in BOT_ADMIN_IDS_RAW.split(","):
         p = part.strip()
         if p.isdigit(): BOT_ADMIN_IDS.add(int(p))
+
 if OWNER_CHAT_ID is not None:
     BOT_ADMIN_IDS.add(OWNER_CHAT_ID)
+if SECOND_OWNER_ID is not None:
+    BOT_ADMIN_IDS.add(SECOND_OWNER_ID)
 
 BROADCAST_SLEEP_SECONDS = float(os.getenv("BROADCAST_SLEEP_SECONDS", "0.07").strip() or "0.07")
 
@@ -551,7 +557,7 @@ def _format_toman(amount: int) -> str: return f"{_to_fa_digits(f'{int(amount):,}
 
 def _is_admin(user_id: int | None) -> bool:
     if not user_id: return False
-    return user_id == OWNER_CHAT_ID or user_id in BOT_ADMIN_IDS
+    return user_id in BOT_ADMIN_IDS
 
 def _is_member(member) -> bool:
     return member.status in {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}
@@ -702,7 +708,9 @@ async def check_membership_gate(update: Update, context: ContextTypes.DEFAULT_TY
         [InlineKeyboardButton("عضویت در کانال 📢", url=url)],
         [InlineKeyboardButton("تایید عضویت ✅", callback_data="check_join")]
     ])
-    await update.effective_message.reply_text(get_setting("welcome_text", DEFAULT_WELCOME_TEXT), reply_markup=kb)
+    
+    if update.message:
+        await update.message.reply_text(get_setting("welcome_text", DEFAULT_WELCOME_TEXT), reply_markup=kb)
     return False
 
 # ==========================================
@@ -1206,12 +1214,6 @@ async def wallet_admin_callbacks(update: Update, context: ContextTypes.DEFAULT_T
         try: await context.bot.send_message(req[0], f"درخواست شارژ کیف پول شما رد شد ❌")
         except: pass
 
-async def wallet_paid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data[UD_STATE] = STATE_WALLET_RECEIPT
-    await query.message.reply_text("📸 لطفاً عکس فیش واریزی خود را ارسال کنید:")
-
 # Admin Stats Pagination
 async def show_admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE, offset=0):
     tu, a24, a7d, a30, rb, pa, va = await asyncio.to_thread(get_admin_stats_detailed)
@@ -1412,6 +1414,7 @@ async def on_day_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def reserve_slots_custom(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     
+    # 1. Select Slot
     if query.data.startswith(CB_SLOT_PREFIX):
         user = update.effective_user
         _, date_iso, hhmm = query.data.split("|", 2)
@@ -1436,6 +1439,7 @@ async def reserve_slots_custom(update: Update, context: ContextTypes.DEFAULT_TYP
         if row: kb_pkg.append(row)
         await query.edit_message_text(f"چه مقدار پخشی نیاز دارید؟", reply_markup=InlineKeyboardMarkup(kb_pkg))
     
+    # 2. Select Package
     elif query.data.startswith(CB_PACKAGE_PREFIX):
         user = update.effective_user
         _, date_iso, hhmm, count_s = query.data.split("|", 3)
@@ -1461,7 +1465,7 @@ async def reserve_slots_custom(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data[UD_PAYMENT_RESERVATION_ID] = reservation_id
 
         bal = await asyncio.to_thread(get_wallet_balance, user.id)
-        txt = f"💰 مبلغ: {_format_toman(price)}\n\nروش پرداخت را انتخاب کنید:"
+        txt = f"💰 مبلغ پایه: {_format_toman(price)}\n\nروش پرداخت را انتخاب کنید:"
         
         kb = []
         if bal >= price:
@@ -1470,6 +1474,7 @@ async def reserve_slots_custom(update: Update, context: ContextTypes.DEFAULT_TYP
         
         await query.edit_message_text(txt, reply_markup=InlineKeyboardMarkup(kb))
         
+    # 3A. Wallet Flow
     elif query.data == "payw_yes":
         user_id = update.effective_user.id
         res_id = context.user_data.get(UD_PAYMENT_RESERVATION_ID)
@@ -1487,6 +1492,7 @@ async def reserve_slots_custom(update: Update, context: ContextTypes.DEFAULT_TYP
         awaiting[str(user_id)] = res_id
         await query.edit_message_text("✅ پرداخت از کیف پول انجام شد. تایم شما قطعی است.\n\nلطفا بنر تبلیغاتی خود را ارسال کنید:")
         
+    # 3B. Card Flow -> Ask Discount (Original Flow)
     elif query.data == "payw_no":
         res_id = context.user_data.get(UD_PAYMENT_RESERVATION_ID)
         kb_discount = InlineKeyboardMarkup([
@@ -1664,6 +1670,28 @@ async def on_takhfif_package_pick(update: Update, context: ContextTypes.DEFAULT_
     except Exception:
         await query.answer("این کد قبلاً ثبت شده است.", show_alert=True)
 
+async def on_check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    user = update.effective_user
+    if not REQUIRED_CHANNEL:
+        await query.answer("نیاز به عضویت نیست.", show_alert=True)
+        return
+        
+    try:
+        member = await context.bot.get_chat_member(REQUIRED_CHANNEL, user.id)
+        if _is_member(member):
+            await query.answer("عضویت تایید شد ✅", show_alert=True)
+            await query.message.delete()
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=get_setting("welcome_text", DEFAULT_WELCOME_TEXT),
+                reply_markup=_main_menu_keyboard(user.id)
+            )
+        else:
+            await query.answer("❌ شما هنوز در کانال عضو نشده‌اید!", show_alert=True)
+    except Exception:
+        await query.answer("❌ ربات ادمین کانال نیست یا دسترسی ندارد.", show_alert=True)
+
 # Main entry points setup
 def main():
     init_db()
@@ -1671,7 +1699,7 @@ def main():
 
     # Commands & Simple Callbacks
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(check_membership_gate, pattern=r"^check_join$"))
+    app.add_handler(CallbackQueryHandler(on_check_join_callback, pattern=r"^check_join$"))
     app.add_handler(CallbackQueryHandler(ref_actions, pattern=r"^ref_"))
     app.add_handler(CallbackQueryHandler(wallet_charge_init, pattern=r"^wallet_charge$"))
     app.add_handler(CallbackQueryHandler(wallet_paid_callback, pattern=r"^wallet_paid$"))
