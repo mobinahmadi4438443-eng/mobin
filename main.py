@@ -798,6 +798,12 @@ async def wallet_charge_init(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data[UD_STATE] = STATE_WALLET_AMOUNT
     await query.message.reply_text("مبلغ مورد نظر برای شارژ را به تومان وارد کنید (مثلا 100000) 💸:", reply_markup=_back_keyboard())
 
+async def wallet_paid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    context.user_data[UD_STATE] = STATE_WALLET_RECEIPT
+    await query.message.reply_text("📸 لطفاً عکس فیش واریزی خود را ارسال کنید:")
+
 async def referral_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await check_membership_gate(update, context): return
     kb = InlineKeyboardMarkup([
@@ -1670,28 +1676,6 @@ async def on_takhfif_package_pick(update: Update, context: ContextTypes.DEFAULT_
     except Exception:
         await query.answer("این کد قبلاً ثبت شده است.", show_alert=True)
 
-async def on_check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    user = update.effective_user
-    if not REQUIRED_CHANNEL:
-        await query.answer("نیاز به عضویت نیست.", show_alert=True)
-        return
-        
-    try:
-        member = await context.bot.get_chat_member(REQUIRED_CHANNEL, user.id)
-        if _is_member(member):
-            await query.answer("عضویت تایید شد ✅", show_alert=True)
-            await query.message.delete()
-            await context.bot.send_message(
-                chat_id=user.id,
-                text=get_setting("welcome_text", DEFAULT_WELCOME_TEXT),
-                reply_markup=_main_menu_keyboard(user.id)
-            )
-        else:
-            await query.answer("❌ شما هنوز در کانال عضو نشده‌اید!", show_alert=True)
-    except Exception:
-        await query.answer("❌ ربات ادمین کانال نیست یا دسترسی ندارد.", show_alert=True)
-
 # Main entry points setup
 def main():
     init_db()
@@ -1699,7 +1683,7 @@ def main():
 
     # Commands & Simple Callbacks
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(on_check_join_callback, pattern=r"^check_join$"))
+    app.add_handler(CallbackQueryHandler(check_membership_gate, pattern=r"^check_join$"))
     app.add_handler(CallbackQueryHandler(ref_actions, pattern=r"^ref_"))
     app.add_handler(CallbackQueryHandler(wallet_charge_init, pattern=r"^wallet_charge$"))
     app.add_handler(CallbackQueryHandler(wallet_paid_callback, pattern=r"^wallet_paid$"))
