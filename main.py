@@ -485,6 +485,10 @@ def can_use_discount_code(code: str, now_iso: str, package_count: int | None) ->
     pct = int(dc[1]) if dc[1] is not None else 0
     return True, "ok", pct, amt, req_pkg
 
+def update_reservation_package_count(reservation_id: int, package_count: int | None):
+    with sqlite3.connect(_db_path()) as con:
+        con.execute("UPDATE reservations SET package_count = ? WHERE id = ?", (package_count, reservation_id))
+
 def create_payment_request(
     reservation_id: int, user_id: int, username: str | None, card_number: str,
     coupon_code: str | None, coupon_percent: int | None, coupon_amount_toman: int | None,
@@ -729,6 +733,29 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     if not await check_membership_gate(update, context): return
     await update.message.reply_text(get_setting("welcome_text", DEFAULT_WELCOME_TEXT), reply_markup=_main_menu_keyboard(user.id))
+
+async def on_check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    user = update.effective_user
+    await query.answer()
+    
+    if not REQUIRED_CHANNEL:
+        await query.edit_message_text("نیاز به عضویت نیست.")
+        return
+        
+    try:
+        member = await context.bot.get_chat_member(REQUIRED_CHANNEL, user.id)
+        if _is_member(member):
+            await query.message.delete()
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=get_setting("welcome_text", DEFAULT_WELCOME_TEXT),
+                reply_markup=_main_menu_keyboard(user.id)
+            )
+        else:
+            await query.answer("❌ شما هنوز در کانال عضو نشده‌اید!", show_alert=True)
+    except Exception:
+        await query.answer("❌ ربات ادمین کانال نیست یا دسترسی ندارد.", show_alert=True)
 
 async def handle_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.clear()
@@ -1433,6 +1460,12 @@ async def reserve_slots_custom(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.answer("ابتدا احراز هویت را انجام دهید.", show_alert=True)
             return
 
+        dl = await asyncio.to_thread(get_daily_limit)
+        booked_pakhsh = await asyncio.to_thread(sum_booked_pakhsh, target_date.isoformat())
+        if dl - booked_pakhsh < 200:
+            await query.answer("ظرفیت پخشی امروز تکمیل است.", show_alert=True)
+            return
+
         context.user_data[UD_PENDING_SLOT_ISO] = slot_dt.isoformat(timespec="seconds")
         pkgs = await asyncio.to_thread(get_active_packages)
         kb_pkg = []
@@ -1464,6 +1497,8 @@ async def reserve_slots_custom(update: Update, context: ContextTypes.DEFAULT_TYP
         if not reservation_id:
             await query.answer("این تایم همین الان رزرو شد.", show_alert=True)
             return
+
+        await asyncio.to_thread(update_reservation_package_count, reservation_id, count)
 
         price = await asyncio.to_thread(get_package_price, count)
         context.user_data['res_pkg'] = count
@@ -1683,7 +1718,7 @@ def main():
 
     # Commands & Simple Callbacks
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(check_membership_gate, pattern=r"^check_join$"))
+    app.add_handler(CallbackQueryHandler(on_check_join_callback, pattern=r"^check_join$"))
     app.add_handler(CallbackQueryHandler(ref_actions, pattern=r"^ref_"))
     app.add_handler(CallbackQueryHandler(wallet_charge_init, pattern=r"^wallet_charge$"))
     app.add_handler(CallbackQueryHandler(wallet_paid_callback, pattern=r"^wallet_paid$"))
