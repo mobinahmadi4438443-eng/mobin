@@ -7,10 +7,10 @@ from aiogram.filters import CommandStart
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # ==========================================
-# ⚙️ تنظیمات اولیه و متغیرها (مخصوص Railway)
+# ⚙️ تنظیمات اولیه
 # ==========================================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "توکن_را_اینجا_بگذار")
-ADMIN_ID = int(os.getenv("ADMIN_ID", 123456789)) # آیدی عددی خودت را بگذار
+ADMIN_ID = int(os.getenv("ADMIN_ID", 123456789))
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
@@ -49,7 +49,7 @@ async def update_world(user_id, world_name):
         await db.commit()
 
 # ==========================================
-# 🧩 کیبوردهای شیشه‌ای (تماماً Inline)
+# 🧩 کیبوردهای شیشه‌ای
 # ==========================================
 def main_menu_keyboard(is_admin=False):
     builder = InlineKeyboardBuilder()
@@ -61,7 +61,7 @@ def main_menu_keyboard(is_admin=False):
     
     sizes = [2, 2, 1]
     if is_admin:
-        builder.button(text="💻 پنل مدیریت (Admin)", callback_data="menu_admin")
+        builder.button(text="💻 پنل مدیریت", callback_data="menu_admin")
         sizes.append(1)
         
     builder.adjust(*sizes)
@@ -100,35 +100,33 @@ def back_to_main_keyboard():
     return builder.as_markup()
 
 # ==========================================
-# 🚀 هندلر دستور استارت (هم گروه و هم پی‌وی)
+# 🚀 هندلرهای پیام و دستورات
 # ==========================================
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    # کاربر در دیتابیس ثبت می‌شود
     await add_user(message.from_user.id, message.from_user.username)
     is_admin = (message.from_user.id == ADMIN_ID)
     
     chat_type = "گروه" if message.chat.type in ["group", "supergroup"] else "پی‌وی"
     
     text = (
-        f"👑 سلام فرمانده **{message.from_user.full_name}**!\n"
-        f"به مرکز فرماندهی **امپراتوری‌های چندجهانی** در {chat_type} خوش آمدید.\n\n"
+        f"👑 سلام فرمانده <b>{message.from_user.full_name}</b>!\n"
+        f"به مرکز فرماندهی <b>امپراتوری‌های چندجهانی</b> در {chat_type} خوش آمدید.\n\n"
         "سیستم‌های ناوبری آماده است. دستور چیست؟"
     )
-    # پنل شیشه‌ای مستقیم داخل گروه یا پی‌وی ارسال می‌شود
-    await message.answer(text, reply_markup=main_menu_keyboard(is_admin), parse_mode="Markdown")
+    await message.answer(text, reply_markup=main_menu_keyboard(is_admin), parse_mode="HTML")
 
 # ==========================================
-# 🎛 هندلرهای ناوبری منوهای اصلی
+# 🎛 هندلرهای ناوبری
 # ==========================================
 @dp.callback_query(F.data == "menu_main")
 async def show_main_menu(callback: types.CallbackQuery):
     is_admin = (callback.from_user.id == ADMIN_ID)
     text = (
-        f"👑 فرمانده **{callback.from_user.full_name}**، شما در مرکز فرماندهی هستید.\n"
+        f"👑 فرمانده <b>{callback.from_user.full_name}</b>، شما در مرکز فرماندهی هستید.\n"
         "بخش مورد نظر را انتخاب کنید:"
     )
-    await callback.message.edit_text(text, reply_markup=main_menu_keyboard(is_admin), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=main_menu_keyboard(is_admin), parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "menu_worlds")
@@ -136,98 +134,82 @@ async def show_worlds_menu(callback: types.CallbackQuery):
     user = await get_user(callback.from_user.id)
     current_world = user[3] if user else "نامشخص"
     text = (
-        "🌌 **سیستم ناوبری چندجهانی**\n\n"
-        f"📍 موقعیت فعلی شما: **{current_world.upper()}**\n\n"
+        "🌌 <b>سیستم ناوبری چندجهانی</b>\n\n"
+        f"📍 موقعیت فعلی شما: <b>{current_world.upper()}</b>\n\n"
         "کوردینات (مختصات) مقصد را انتخاب کنید:"
     )
-    await callback.message.edit_text(text, reply_markup=worlds_keyboard(), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=worlds_keyboard(), parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "menu_inventory")
 async def show_inventory_menu(callback: types.CallbackQuery):
     user = await get_user(callback.from_user.id)
     if not user:
-        return await callback.answer("شما هنوز ثبت نام نکرده‌اید! /start را بزنید.", show_alert=True)
+        return await callback.answer("ابتدا /start را بزنید.", show_alert=True)
     
     balance = user[2]
     level = user[4]
     text = (
-        "🎒 **انبار شخصی**\n\n"
+        "🎒 <b>انبار شخصی</b>\n\n"
         f"⚜️ سطح کاربری: {level}\n"
-        f"💰 موجودی کل: **{balance:,}** سکه\n\n"
+        f"💰 موجودی کل: <b>{balance:,}</b> سکه\n\n"
         "گزینه مورد نظر را انتخاب کنید:"
     )
-    await callback.message.edit_text(text, reply_markup=inventory_keyboard(), parse_mode="Markdown")
+    await callback.message.edit_text(text, reply_markup=inventory_keyboard(), parse_mode="HTML")
     await callback.answer()
 
 @dp.callback_query(F.data == "menu_admin")
 async def show_admin_menu(callback: types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID:
-        return await callback.answer("⛔️ این بخش فقط برای سازنده ربات است!", show_alert=True)
+        return await callback.answer("⛔️ دسترسی غیرمجاز!", show_alert=True)
     
-    text = "💻 **پنل فرماندهی کل (Super Admin)**\n\nسیستم‌های نظارتی آماده به کار هستند."
-    await callback.message.edit_text(text, reply_markup=admin_keyboard(), parse_mode="Markdown")
+    text = "💻 <b>پنل فرماندهی کل (Admin)</b>\n\nسیستم‌های نظارتی آماده هستند."
+    await callback.message.edit_text(text, reply_markup=admin_keyboard(), parse_mode="HTML")
     await callback.answer()
 
-# ==========================================
-# ⚙️ هندلرهای عملیات (اکشن‌های دکمه‌ها)
-# ==========================================
 @dp.callback_query(F.data.in_({"menu_empire", "menu_bank", "menu_army"}))
 async def show_coming_soon(callback: types.CallbackQuery):
     section_name = ""
-    if callback.data == "menu_empire": section_name = "🏰 امپراتوری"
-    elif callback.data == "menu_bank": section_name = "🏦 بانک مرکزی"
-    elif callback.data == "menu_army": section_name = "⚔️ ارتش و جنگ‌افزار"
+    if callback.data == "menu_empire": section_name = "امپراتوری"
+    elif callback.data == "menu_bank": section_name = "بانک مرکزی"
+    elif callback.data == "menu_army": section_name = "ارتش و جنگ‌افزار"
 
-    text = f"⚠️ بخش **{section_name}** در حال آماده‌سازی است و به زودی فعال می‌شود.\n\nاز طریق دکمه زیر به منوی اصلی برگردید."
-    await callback.message.edit_text(text, reply_markup=back_to_main_keyboard(), parse_mode="Markdown")
-    await callback.answer("در حال توسعه...", show_alert=False)
+    text = f"⚠️ بخش <b>{section_name}</b> در حال آماده‌سازی است و به زودی در دسترس قرار می‌گیرد."
+    await callback.message.edit_text(text, reply_markup=back_to_main_keyboard(), parse_mode="HTML")
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("go_"))
 async def process_world_travel(callback: types.CallbackQuery):
     destination = callback.data.split("_")[1]
-    
-    # آپدیت دیتابیس
     await update_world(callback.from_user.id, destination)
     
     text = (
-        "✨ **انتقال با موفقیت انجام شد!**\n\n"
-        f"شما اکنون در **دنیای {destination.upper()}** فرود آمدید."
+        "✨ <b>انتقال با موفقیت انجام شد!</b>\n\n"
+        f"شما اکنون در <b>دنیای {destination.upper()}</b> فرود آمدید."
     )
-    # بعد از سفر، کیبورد بازگشت به دنیای اصلی نمایش داده می‌شود
     builder = InlineKeyboardBuilder()
     builder.button(text="🔙 بازگشت به لیست دنیاها", callback_data="menu_worlds")
     builder.button(text="🏠 مرکز فرماندهی", callback_data="menu_main")
     builder.adjust(1, 1)
     
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
-    await callback.answer(f"به دنیای {destination} رسیدیم!", show_alert=False)
+    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    await callback.answer(f"به دنیای {destination} رسیدیم!")
 
-@dp.callback_query(F.data.startswith("action_"))
-async def process_inventory_actions(callback: types.CallbackQuery):
+@dp.callback_query(F.data.startswith("action_") | F.data.startswith("admin_"))
+async def process_misc_actions(callback: types.CallbackQuery):
     action = callback.data.split("_")[1]
-    if action == "smuggle":
-        text = "🧳 شما وارد منطقه خطرناک قاچاق شدید! به زودی می‌توانید منابع را بین دنیاها جابجا کنید."
-    elif action == "exchange":
-        text = "🔄 صرافی در حال بروزرسانی نرخ‌های جهانی است. لطفاً بعداً تلاش کنید."
-        
-    await callback.message.edit_text(text, reply_markup=back_to_main_keyboard(), parse_mode="Markdown")
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("admin_"))
-async def process_admin_actions(callback: types.CallbackQuery):
-    if callback.from_user.id != ADMIN_ID:
+    
+    if callback.data.startswith("admin_") and callback.from_user.id != ADMIN_ID:
         return await callback.answer("دسترسی رد شد.", show_alert=True)
         
-    action = callback.data.split("_")[1]
-    if action == "stats":
-        text = "📊 **آمار سرور:**\nوضعیت دیتابیس: متصل\nتعداد کاربران: (در حال محاسبه...)"
-    elif action == "inject":
-        text = "💰 سیستم تزریق پول به زودی متصل می‌شود."
+    text = "در حال توسعه..."
+    if action == "smuggle": text = "🧳 منطقه خطرناک قاچاق! به زودی فعال می‌شود."
+    elif action == "exchange": text = "🔄 صرافی در حال بروزرسانی نرخ‌های جهانی است."
+    elif action == "stats": text = "📊 <b>آمار سرور:</b>\nدیتابیس: متصل\nوضعیت: عادی"
+    elif action == "inject": text = "💰 سیستم تزریق پول به زودی متصل می‌شود."
         
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🔙 بازگشت به پنل مدیریت", callback_data="menu_admin")
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    markup = back_to_main_keyboard() if callback.data.startswith("action_") else admin_keyboard()
+    await callback.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
     await callback.answer()
 
 # ==========================================
@@ -235,7 +217,6 @@ async def process_admin_actions(callback: types.CallbackQuery):
 # ==========================================
 async def main():
     await init_db()
-    print("🤖 ربات روشن شد و آماده سرویس‌دهی در گروه‌ها و پی‌وی است...")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
