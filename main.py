@@ -3,25 +3,22 @@ import logging
 import os
 import aiosqlite
 from aiogram import Bot, Dispatcher, F, types
-from aiogram.filters import CommandStart, Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import CommandStart
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # ==========================================
 # ⚙️ تنظیمات اولیه و متغیرها
 # ==========================================
-BOT_TOKEN = os.getenv("BOT_TOKEN", "توکن_را_اینجا_بگذار_اگر_در_ریلوی_نیست")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "توکن_را_اینجا_بگذار")
 ADMIN_ID = int(os.getenv("ADMIN_ID", 123456789)) # آیدی عددی خودت
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
-# نام دیتابیس
 DB_NAME = "multiverse.db"
 
 # ==========================================
-# 🗄 مدیریت دیتابیس (حرفه‌ای و ناهمگام)
+# 🗄 مدیریت دیتابیس
 # ==========================================
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
@@ -52,149 +49,171 @@ async def update_world(user_id, world_name):
         await db.commit()
 
 # ==========================================
-# 🎛 کیبوردهای اصلی (PV)
+# 🧩 کیبوردهای شیشه‌ای (تماماً Inline)
 # ==========================================
-def main_reply_keyboard(is_admin=False):
-    kb = [
-        [KeyboardButton(text="🌌 دروازه دنیاها"), KeyboardButton(text="🏰 امپراتوری من")],
-        [KeyboardButton(text="🎒 دارایی و انبار"), KeyboardButton(text="🏦 بانک و بازار")],
-        [KeyboardButton(text="⚔️ ارتش و جنگ‌افزار")]
-    ]
-    if is_admin:
-        kb.append([KeyboardButton(text="💻 پنل مدیریت (Admin)")])
+def main_menu_keyboard(is_admin=False):
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🌌 دروازه دنیاها", callback_data="menu_worlds")
+    builder.button(text="🏰 امپراتوری من", callback_data="menu_empire")
+    builder.button(text="🎒 دارایی و انبار", callback_data="menu_inventory")
+    builder.button(text="🏦 بانک و بازار", callback_data="menu_bank")
+    builder.button(text="⚔️ ارتش و جنگ‌افزار", callback_data="menu_army")
     
-    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, input_field_placeholder="فرمانده، دستور چیست؟")
+    # چیدمان دکمه‌ها: ردیف اول 2تا، ردیف دوم 2تا، ردیف سوم 1 دونه
+    sizes = [2, 2, 1]
+    
+    if is_admin:
+        builder.button(text="💻 پنل مدیریت (Admin)", callback_data="menu_admin")
+        sizes.append(1) # اضافه کردن یک ردیف برای دکمه ادمین
+        
+    builder.adjust(*sizes)
+    return builder.as_markup()
 
-# ==========================================
-# 🧩 کیبوردهای شیشه‌ای (Inline) با دکمه بازگشت
-# ==========================================
-def worlds_inline_keyboard():
+def worlds_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="💻 دنیای سایبری", callback_data="go_cyber")
     builder.button(text="🐉 دنیای فانتزی", callback_data="go_fantasy")
     builder.button(text="🚀 دنیای فضایی", callback_data="go_space")
     builder.button(text="☢️ آخرالزمان", callback_data="go_apocalypse")
-    builder.button(text="🔙 بستن پنل", callback_data="close_panel")
+    builder.button(text="🔙 بازگشت به مرکز فرماندهی", callback_data="menu_main")
     builder.adjust(2, 2, 1)
     return builder.as_markup()
 
-def inventory_inline_keyboard():
+def inventory_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="🧳 قاچاق به بازار سیاه", callback_data="action_smuggle")
     builder.button(text="🔄 صرافی چندجهانی", callback_data="action_exchange")
-    builder.button(text="🔙 بستن پنل", callback_data="close_panel")
+    builder.button(text="🔙 بازگشت به مرکز فرماندهی", callback_data="menu_main")
     builder.adjust(1, 1, 1)
     return builder.as_markup()
 
-def admin_inline_keyboard():
+def admin_keyboard():
     builder = InlineKeyboardBuilder()
     builder.button(text="📊 آمار ربات", callback_data="admin_stats")
     builder.button(text="💰 تزریق پول به اقتصاد", callback_data="admin_inject")
-    builder.button(text="🔙 بستن پنل", callback_data="close_panel")
+    builder.button(text="🔙 بازگشت به مرکز فرماندهی", callback_data="menu_main")
     builder.adjust(2, 1)
+    return builder.as_markup()
+
+def back_to_main_keyboard():
+    # یک کیبورد ساده فقط با دکمه بازگشت برای بخش‌های در حال ساخت
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🔙 بازگشت به مرکز فرماندهی", callback_data="menu_main")
     return builder.as_markup()
 
 def back_to_worlds_keyboard():
     builder = InlineKeyboardBuilder()
-    builder.button(text="🔙 بازگشت به منوی دنیاها", callback_data="menu_worlds")
+    builder.button(text="🔙 بازگشت به لیست دنیاها", callback_data="menu_worlds")
+    builder.button(text="🏠 مرکز فرماندهی", callback_data="menu_main")
+    builder.adjust(1, 1)
     return builder.as_markup()
 
 # ==========================================
-# 🚀 هندلرهای پیام‌ها (Commands & Messages)
+# 🚀 هندلرهای دستورات (Commands)
 # ==========================================
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
+    # فقط در پی‌وی کار کند (جلوگیری از شلوغی گروه)
+    if message.chat.type != "private":
+        return
+        
     await add_user(message.from_user.id, message.from_user.username)
     is_admin = (message.from_user.id == ADMIN_ID)
     
-    welcome_text = (
-        f"👑 سلام فرمانده {message.from_user.full_name}!\n"
-        "به ربات امپراتوری‌های چندجهانی خوش آمدید.\n\n"
-        "شما اکنون در پایگاه اصلی هستید. از منوی زیر برای مدیریت امپراتوری خود استفاده کنید."
-    )
-    await message.answer(welcome_text, reply_markup=main_reply_keyboard(is_admin))
-
-@dp.message(F.text == "🌌 دروازه دنیاها")
-async def show_worlds(message: types.Message):
-    user = await get_user(message.from_user.id)
-    if not user:
-        return await message.answer("لطفا ابتدا ربات را /start کنید.")
-    
-    current_world = user[3] # Index 3 is current_world in our tuple
     text = (
-        "🌌 **سیستم ناوبری چندجهانی فعال شد.**\n\n"
-        f"📍 دنیای فعلی شما: **{current_world.upper()}**\n\n"
-        "برای سفر به دنیای جدید، مقصد را انتخاب کنید:"
+        f"👑 سلام فرمانده **{message.from_user.full_name}**!\n"
+        "به مرکز فرماندهی **امپراتوری‌های چندجهانی** خوش آمدید.\n\n"
+        "سیستم‌های ناوبری آماده است. دستور چیست؟"
     )
-    await message.answer(text, reply_markup=worlds_inline_keyboard(), parse_mode="Markdown")
-
-@dp.message(F.text == "🎒 دارایی و انبار")
-async def show_inventory(message: types.Message):
-    user = await get_user(message.from_user.id)
-    balance = user[2]
-    level = user[4]
-    
-    text = (
-        "🎒 **انبار شخصی شما**\n\n"
-        f"⚜️ سطح کاربری: {level}\n"
-        f"💰 موجودی کل: {balance:,} سکه\n\n"
-        "چه عملیاتی می‌خواهید انجام دهید؟"
-    )
-    await message.answer(text, reply_markup=inventory_inline_keyboard())
-
-@dp.message(F.text == "💻 پنل مدیریت (Admin)")
-async def show_admin_panel(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return await message.answer("⛔️ شما به این بخش دسترسی ندارید.")
-    
-    text = "💻 **پنل فرماندهی کل (Super Admin)**\n\nبه پنل کنترل مولتی‌ورس خوش آمدید قربان!"
-    await message.answer(text, reply_markup=admin_inline_keyboard())
-
-@dp.message(F.text.in_({"🏰 امپراتوری من", "🏦 بانک و بازار", "⚔️ ارتش و جنگ‌افزار"}))
-async def coming_soon(message: types.Message):
-    await message.answer("⚠️ این بخش در آپدیت بعدی پایگاه در دسترس قرار می‌گیرد. در حال ساخت و توسعه...")
+    await message.answer(text, reply_markup=main_menu_keyboard(is_admin), parse_mode="Markdown")
 
 # ==========================================
 # 🎛 هندلرهای دکمه‌های شیشه‌ای (Callbacks)
 # ==========================================
+
+# --- 🏠 بازگشت به منوی اصلی ---
+@dp.callback_query(F.data == "menu_main")
+async def show_main_menu(callback: types.CallbackQuery):
+    is_admin = (callback.from_user.id == ADMIN_ID)
+    text = (
+        f"👑 فرمانده **{callback.from_user.full_name}**، شما در مرکز فرماندهی هستید.\n"
+        "بخش مورد نظر را انتخاب کنید:"
+    )
+    await callback.message.edit_text(text, reply_markup=main_menu_keyboard(is_admin), parse_mode="Markdown")
+    await callback.answer()
+
+# --- 🌌 دروازه دنیاها ---
+@dp.callback_query(F.data == "menu_worlds")
+async def show_worlds_menu(callback: types.CallbackQuery):
+    user = await get_user(callback.from_user.id)
+    current_world = user[3]
+    text = (
+        "🌌 **سیستم ناوبری چندجهانی**\n\n"
+        f"📍 موقعیت فعلی شما: **{current_world.upper()}**\n\n"
+        "کوردینات (مختصات) مقصد را انتخاب کنید:"
+    )
+    await callback.message.edit_text(text, reply_markup=worlds_keyboard(), parse_mode="Markdown")
+    await callback.answer()
+
+# --- 🎒 انبار و دارایی ---
+@dp.callback_query(F.data == "menu_inventory")
+async def show_inventory_menu(callback: types.CallbackQuery):
+    user = await get_user(callback.from_user.id)
+    balance = user[2]
+    level = user[4]
+    text = (
+        "🎒 **انبار شخصی**\n\n"
+        f"⚜️ سطح کاربری: {level}\n"
+        f"💰 موجودی کل: **{balance:,}** سکه\n\n"
+        "گزینه مورد نظر را انتخاب کنید:"
+    )
+    await callback.message.edit_text(text, reply_markup=inventory_keyboard(), parse_mode="Markdown")
+    await callback.answer()
+
+# --- 💻 پنل مدیریت ---
+@dp.callback_query(F.data == "menu_admin")
+async def show_admin_menu(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        return await callback.answer("⛔️ دسترسی غیرمجاز!", show_alert=True)
+    
+    text = "💻 **پنل فرماندهی کل (Super Admin)**\n\nسیستم‌های نظارتی آماده به کار هستند."
+    await callback.message.edit_text(text, reply_markup=admin_keyboard(), parse_mode="Markdown")
+    await callback.answer()
+
+# --- ⏳ بخش‌های در حال ساخت ---
+@dp.callback_query(F.data.in_({"menu_empire", "menu_bank", "menu_army"}))
+async def show_coming_soon(callback: types.CallbackQuery):
+    section_name = ""
+    if callback.data == "menu_empire": section_name = "🏰 امپراتوری"
+    elif callback.data == "menu_bank": section_name = "🏦 بانک مرکزی"
+    elif callback.data == "menu_army": section_name = "⚔️ ارتش و جنگ‌افزار"
+
+    text = f"⚠️ بخش **{section_name}** در حال ساخت است و در آپدیت بعدی فعال می‌شود..."
+    await callback.message.edit_text(text, reply_markup=back_to_main_keyboard(), parse_mode="Markdown")
+    await callback.answer("در حال توسعه...", show_alert=False)
+
+# --- 🚀 عملیات سفر بین دنیاها ---
 @dp.callback_query(F.data.startswith("go_"))
-async def travel_world(callback: types.CallbackQuery):
-    destination = callback.data.split("_")[1] # e.g., 'cyber' from 'go_cyber'
+async def process_world_travel(callback: types.CallbackQuery):
+    destination = callback.data.split("_")[1] # کلمه بعد از go_ را می‌گیرد
     
     # آپدیت دیتابیس
     await update_world(callback.from_user.id, destination)
     
-    # ویرایش پیام قبلی و قرار دادن دکمه بازگشت
-    text = f"✨ انتقال با موفقیت انجام شد!\n\nشما اکنون در **دنیای {destination.upper()}** هستید."
+    text = (
+        "✨ **انتقال با موفقیت انجام شد!**\n\n"
+        f"شما اکنون در **دنیای {destination.upper()}** فرود آمدید."
+    )
     await callback.message.edit_text(text, reply_markup=back_to_worlds_keyboard(), parse_mode="Markdown")
     await callback.answer(f"به دنیای {destination} خوش آمدید!", show_alert=False)
 
-@dp.callback_query(F.data == "menu_worlds")
-async def back_to_worlds_menu(callback: types.CallbackQuery):
-    user = await get_user(callback.from_user.id)
-    current_world = user[3]
-    text = (
-        "🌌 **سیستم ناوبری چندجهانی فعال شد.**\n\n"
-        f"📍 دنیای فعلی شما: **{current_world.upper()}**\n\n"
-        "برای سفر به دنیای جدید، مقصد را انتخاب کنید:"
-    )
-    # بازگشت به لیست دنیاها
-    await callback.message.edit_text(text, reply_markup=worlds_inline_keyboard(), parse_mode="Markdown")
-    await callback.answer()
-
-@dp.callback_query(F.data == "close_panel")
-async def close_inline_panel(callback: types.CallbackQuery):
-    await callback.message.delete()
-    await callback.answer("پنل بسته شد.")
-
 # ==========================================
-# 🔥 روتر اجرای اصلی ربات
+# 🔥 اجرای هسته ربات
 # ==========================================
 async def main():
     await init_db()
-    print("🤖 دیتابیس متصل شد. ربات در حال روشن شدن است...")
+    print("🤖 سیستم 100% Inline شد. ربات آماده کار است...")
     try:
-        # پاک کردن آپدیت‌های آفلاین تا ربات اسپم نشود
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
     finally:
