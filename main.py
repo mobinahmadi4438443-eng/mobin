@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 import aiosqlite
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart
@@ -18,11 +19,16 @@ dp = Dispatcher()
 DB_NAME = "multiverse.db"
 
 # ==========================================
-# 🗄 مدیریت دیتابیس پیشرفته
+# 🎮 حافظه موقت برای راید (نقشه زنده)
+# ==========================================
+# این دیکشنری وضعیت نقشه هر بازیکن را در لحظه ذخیره می‌کند
+active_raids = {}
+
+# ==========================================
+# 🗄 مدیریت دیتابیس
 # ==========================================
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
-        # اضافه شدن سوخت و مانا به دیتابیس
         await db.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
@@ -31,7 +37,8 @@ async def init_db():
                 current_world TEXT DEFAULT 'apocalypse',
                 level INTEGER DEFAULT 1,
                 fuel INTEGER DEFAULT 0,
-                mana INTEGER DEFAULT 0
+                mana INTEGER DEFAULT 0,
+                scrap INTEGER DEFAULT 0
             )
         ''')
         await db.commit()
@@ -46,22 +53,13 @@ async def add_user(user_id, username):
         await db.execute('INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)', (user_id, username))
         await db.commit()
 
-async def update_world(user_id, world_name, fuel_cost=0, mana_cost=0):
+async def save_raid_loot(user_id, scrap_amount):
     async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute('''
-            UPDATE users 
-            SET current_world = ?, fuel = fuel - ?, mana = mana - ? 
-            WHERE user_id = ?
-        ''', (world_name, fuel_cost, mana_cost, user_id))
-        await db.commit()
-
-async def buy_resource(user_id, resource_type, amount, cost):
-    async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute(f'UPDATE users SET balance = balance - ?, {resource_type} = {resource_type} + ? WHERE user_id = ?', (cost, amount, user_id))
+        await db.execute('UPDATE users SET scrap = scrap + ? WHERE user_id = ?', (scrap_amount, user_id))
         await db.commit()
 
 # ==========================================
-# 🧩 کیبوردهای شیشه‌ای
+# 🧩 کیبوردهای منوی اصلی
 # ==========================================
 def main_menu_keyboard(is_admin=False):
     builder = InlineKeyboardBuilder()
@@ -79,40 +77,91 @@ def main_menu_keyboard(is_admin=False):
 
 def worlds_keyboard():
     builder = InlineKeyboardBuilder()
-    # الان دکمه‌ها به جای go_ به intel_ (اطلاعات) وصل هستند
+    builder.button(text="☢️ آخرالزمان (ورود رایگان)", callback_data="intel_apocalypse")
     builder.button(text="💻 سایبری (سطح 3)", callback_data="intel_cyber")
-    builder.button(text="🐉 فانتزی (سطح 2)", callback_data="intel_fantasy")
-    builder.button(text="🚀 فضایی (سطح 5)", callback_data="intel_space")
-    builder.button(text="☢️ آخرالزمان (رایگان)", callback_data="intel_apocalypse")
-    builder.button(text="🔙 بازگشت به مرکز فرماندهی", callback_data="menu_main")
-    builder.adjust(2, 2, 1)
-    return builder.as_markup()
-
-def intel_keyboard(world):
-    builder = InlineKeyboardBuilder()
-    builder.button(text="✈️ پرش ابعادی (سفر)", callback_data=f"travel_{world}")
-    if world in ["cyber", "space"]:
-        builder.button(text="⛽️ خرید 10 لیتر سوخت (100 سکه)", callback_data="buy_fuel_10")
-    elif world == "fantasy":
-        builder.button(text="🔮 خرید 5 کریستال مانا (150 سکه)", callback_data="buy_mana_5")
-        
-    builder.button(text="🔙 بازگشت به لیست دنیاها", callback_data="menu_worlds")
+    builder.button(text="🔙 مرکز فرماندهی", callback_data="menu_main")
     builder.adjust(1, 1, 1)
     return builder.as_markup()
 
-def back_to_main_keyboard():
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🔙 بازگشت به مرکز", callback_data="menu_main")
-    return builder.as_markup()
+# ==========================================
+# 🗺 سیستم ساخت و رندر نقشه (مینی‌گیم آخرالزمان)
+# ==========================================
+def start_new_raid(user_id):
+    # ساخت نقشه 5x5
+    # 0: خالی 🟩, 1: جعبه لوت 📦, 2: زامبی 🧟‍♂️, 3: نقطه استخراج 🚁
+    grid = [[0 for _ in range(5)] for _ in range(5)]
+    
+    # قرار دادن 4 جعبه لوت تصادفی
+    for _ in range(4):
+        grid[random.randint(0, 4)][random.randint(0, 4)] = 1
+        
+    # قرار دادن 3 زامبی تصادفی
+    for _ in range(3):
+        grid[random.randint(0, 4)][random.randint(0, 4)] = 2
+        
+    # قرار دادن هلیکوپتر استخراج (حوالی لبه‌ها)
+    grid[4][random.randint(0, 4)] = 3
+    
+    # نقطه شروع بازیکن همیشه 0,0 است، پس آنجا را خالی می‌کنیم
+    grid[0][0] = 0
+
+    active_raids[user_id] = {
+        "grid": grid,
+        "pos": [0, 0], # x, y
+        "hp": 100,
+        "loot": 0,
+        "status": "playing", # playing, dead, escaped
+        "msg": "وارد خرابه شدی... مراقب باش!"
+    }
+
+def render_map(user_id):
+    state = active_raids[user_id]
+    grid = state["grid"]
+    px, py = state["pos"]
+    
+    map_str = ""
+    for y in range(5):
+        for x in range(5):
+            if x == px and y == py:
+                map_str += "👤"
+            # سیستم مه جنگ (فقط شعاع 1 خانه اطراف دیده می‌شود)
+            elif abs(x - px) <= 1 and abs(y - py) <= 1:
+                val = grid[y][x]
+                if val == 0: map_str += "🟩"
+                elif val == 1: map_str += "📦"
+                elif val == 2: map_str += "🧟‍♂️"
+                elif val == 3: map_str += "🚁"
+            else:
+                map_str += "⬛️"
+        map_str += "\n"
+    
+    return map_str
+
+def raid_controls_keyboard():
+    b = InlineKeyboardBuilder()
+    b.button(text=" ", callback_data="ignore")
+    b.button(text="⬆️", callback_data="move_up")
+    b.button(text=" ", callback_data="ignore")
+    
+    b.button(text="⬅️", callback_data="move_left")
+    b.button(text="🔍", callback_data="ignore")
+    b.button(text="➡️", callback_data="move_right")
+    
+    b.button(text=" ", callback_data="ignore")
+    b.button(text="⬇️", callback_data="move_down")
+    b.button(text=" ", callback_data="ignore")
+    
+    b.button(text="🏃‍♂️ فرار با دست خالی", callback_data="flee_raid")
+    b.adjust(3, 3, 3, 1)
+    return b.as_markup()
 
 # ==========================================
-# 🚀 هندلرهای پیام و دستورات
+# 🚀 هندلرهای پایه
 # ==========================================
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     await add_user(message.from_user.id, message.from_user.username)
     is_admin = (message.from_user.id == ADMIN_ID)
-    
     text = (
         f"👑 سلام فرمانده <b>{message.from_user.full_name}</b>!\n"
         f"به مرکز فرماندهی <b>امپراتوری‌های چندجهانی</b> خوش آمدید.\n\n"
@@ -120,135 +169,165 @@ async def cmd_start(message: types.Message):
     )
     await message.answer(text, reply_markup=main_menu_keyboard(is_admin), parse_mode="HTML")
 
-# ==========================================
-# 🎛 هندلرهای ناوبری اصلی
-# ==========================================
 @dp.callback_query(F.data == "menu_main")
 async def show_main_menu(callback: types.CallbackQuery):
     is_admin = (callback.from_user.id == ADMIN_ID)
-    text = f"👑 فرمانده <b>{callback.from_user.full_name}</b>، شما در مرکز هستید. بخش مورد نظر را انتخاب کنید:"
+    text = "👑 شما در مرکز فرماندهی هستید. بخش مورد نظر را انتخاب کنید:"
     await callback.message.edit_text(text, reply_markup=main_menu_keyboard(is_admin), parse_mode="HTML")
-    await callback.answer()
 
 @dp.callback_query(F.data == "menu_worlds")
 async def show_worlds_menu(callback: types.CallbackQuery):
-    user = await get_user(callback.from_user.id)
-    current_world = user[3]
-    text = (
-        "🌌 <b>دروازه دنیاها (مولتی‌ورس)</b>\n\n"
-        f"📍 موقعیت فعلی شما: <b>{current_world.upper()}</b>\n\n"
-        "برای مشاهده وضعیت و سفر به هر دنیا، روی آن کلیک کنید:"
-    )
+    text = "🌌 <b>دروازه دنیاها (مولتی‌ورس)</b>\n\nبرای اعزام روی دنیای مورد نظر کلیک کنید:"
     await callback.message.edit_text(text, reply_markup=worlds_keyboard(), parse_mode="HTML")
-    await callback.answer()
 
+@dp.callback_query(F.data == "intel_apocalypse")
+async def show_apocalypse_intel(callback: types.CallbackQuery):
+    text = (
+        "☢️ <b>گیت ورودی: دنیای آخرالزمان</b>\n\n"
+        "شما در حال اعزام به یک منطقه رادیواکتیو و پر از زامبی هستید.\n"
+        "هدف: لوت کردن آهن‌قراضه (Scrap) و رسیدن به هلیکوپتر نجات (🚁).\n"
+        "هشدار: اگر بمیرید، تمام لوت‌های این سفر نابود می‌شود!\n\n"
+        "آیا آماده اعزام هستید؟"
+    )
+    b = InlineKeyboardBuilder()
+    b.button(text="🪂 اعزام به نقشه (شروع راید)", callback_data="start_raid")
+    b.button(text="🔙 انصراف", callback_data="menu_worlds")
+    b.adjust(1, 1)
+    await callback.message.edit_text(text, reply_markup=b.as_markup(), parse_mode="HTML")
+
+# ==========================================
+# 🎮 هندلرهای مینی‌گیم نقشه (راید)
+# ==========================================
+@dp.callback_query(F.data == "start_raid")
+async def process_start_raid(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    start_new_raid(user_id) # ساخت نقشه اختصاصی در رم
+    
+    state = active_raids[user_id]
+    map_visual = render_map(user_id)
+    
+    text = (
+        f"📻 <b>رادار بقا - متصل شد</b>\n"
+        f"<i>{state['msg']}</i>\n\n"
+        f"❤️ سلامتی: {state['hp']}/100\n"
+        f"🎒 لوت کوله‌پشتی: {state['loot']} آهن‌قراضه\n\n"
+        f"{map_visual}"
+    )
+    await callback.message.edit_text(text, reply_markup=raid_controls_keyboard(), parse_mode="HTML")
+
+@dp.callback_query(F.data.startswith("move_"))
+async def process_movement(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    if user_id not in active_raids:
+        return await callback.answer("بازی شما منقضی شده است!", show_alert=True)
+        
+    state = active_raids[user_id]
+    if state["status"] != "playing":
+        return await callback.answer("این راید تمام شده است!", show_alert=True)
+
+    direction = callback.data.split("_")[1]
+    px, py = state["pos"]
+    
+    # محاسبه موقعیت جدید
+    nx, ny = px, py
+    if direction == "up" and py > 0: ny -= 1
+    elif direction == "down" and py < 4: ny += 1
+    elif direction == "left" and px > 0: nx -= 1
+    elif direction == "right" and px < 4: nx += 1
+    else:
+        return await callback.answer("دیوار! نمی‌توانی از نقشه خارج شوی.", show_alert=False)
+
+    # حرکت انجام شد، بررسی برخوردها
+    state["pos"] = [nx, ny]
+    cell_value = state["grid"][ny][nx]
+    
+    if cell_value == 1: # جعبه لوت
+        found = random.randint(10, 35)
+        state["loot"] += found
+        state["grid"][ny][nx] = 0 # جعبه خالی شد
+        state["msg"] = f"📦 عالی! {found} آهن‌قراضه پیدا کردی."
+        
+    elif cell_value == 2: # زامبی
+        dmg = random.randint(20, 45)
+        state["hp"] -= dmg
+        state["grid"][ny][nx] = 0 # زامبی کشته شد
+        if state["hp"] <= 0:
+            state["hp"] = 0
+            state["status"] = "dead"
+            state["msg"] = "💀 تو توسط زامبی‌ها تیکه پاره شدی... تمام لوت‌ها از دست رفت!"
+        else:
+            state["msg"] = f"🩸 یک زامبی به تو حمله کرد! {dmg} دمیج خوردی."
+            
+    elif cell_value == 3: # هلیکوپتر (خروج موفق)
+        state["status"] = "escaped"
+        state["msg"] = f"🚁 استخراج موفقیت آمیز! {state['loot']} آهن‌قراضه به انبارت اضافه شد."
+        await save_raid_loot(user_id, state['loot'])
+        
+    else:
+        state["msg"] = "پایگاه امن..."
+
+    # آپدیت صفحه نمایش
+    map_visual = render_map(user_id)
+    text = (
+        f"📻 <b>رادار بقا - متصل شد</b>\n"
+        f"<i>{state['msg']}</i>\n\n"
+        f"❤️ سلامتی: {state['hp']}/100\n"
+        f"🎒 لوت کوله‌پشتی: {state['loot']} آهن‌قراضه\n\n"
+        f"{map_visual}"
+    )
+
+    # اگر بازی تمام شده دکمه بازگشت نشان بده
+    if state["status"] != "playing":
+        b = InlineKeyboardBuilder()
+        b.button(text="🏠 بازگشت به پایگاه", callback_data="menu_main")
+        await callback.message.edit_text(text, reply_markup=b.as_markup(), parse_mode="HTML")
+        del active_raids[user_id] # پاک کردن از رم
+    else:
+        await callback.message.edit_text(text, reply_markup=raid_controls_keyboard(), parse_mode="HTML")
+
+@dp.callback_query(F.data == "flee_raid")
+async def process_flee(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    if user_id in active_raids:
+        del active_raids[user_id]
+    text = "🏃‍♂️ از ترس فرار کردی... تمام لوت‌هایی که جمع کرده بودی را در راه انداختی!"
+    b = InlineKeyboardBuilder()
+    b.button(text="🏠 بازگشت به پایگاه", callback_data="menu_main")
+    await callback.message.edit_text(text, reply_markup=b.as_markup(), parse_mode="HTML")
+
+@dp.callback_query(F.data == "ignore")
+async def process_ignore(callback: types.CallbackQuery):
+    await callback.answer() # برای دکمه‌های خالی کیبورد حرکت
+
+# ==========================================
+# ⚙️ هندلرهای در حال ساخت و انبار
+# ==========================================
 @dp.callback_query(F.data == "menu_inventory")
 async def show_inventory_menu(callback: types.CallbackQuery):
     user = await get_user(callback.from_user.id)
-    balance, current_world, level, fuel, mana = user[2], user[3], user[4], user[5], user[6]
-    
+    balance, level, scrap = user[2], user[4], user[7]
     text = (
         "🎒 <b>انبار شخصی</b>\n\n"
-        f"⚜️ سطح کاربری: <b>{level}</b>\n"
-        f"📍 دنیای فعلی: <b>{current_world.upper()}</b>\n\n"
-        "<b>دارایی‌ها:</b>\n"
+        f"⚜️ سطح: {level}\n"
         f"💰 سکه: {balance:,}\n"
-        f"⛽️ سوخت: {fuel} لیتر\n"
-        f"🔮 مانا: {mana} کریستال"
+        f"⚙️ آهن‌قراضه: {scrap}\n\n"
     )
-    await callback.message.edit_text(text, reply_markup=back_to_main_keyboard(), parse_mode="HTML")
-    await callback.answer()
+    b = InlineKeyboardBuilder()
+    b.button(text="🔙 بازگشت", callback_data="menu_main")
+    await callback.message.edit_text(text, reply_markup=b.as_markup(), parse_mode="HTML")
 
-# ==========================================
-# 🌌 هندلرهای اطلاعات دنیاها (Intel Board)
-# ==========================================
-@dp.callback_query(F.data.startswith("intel_"))
-async def show_world_intel(callback: types.CallbackQuery):
-    world = callback.data.split("_")[1]
-    
-    intel_data = {
-        "apocalypse": {"name": "آخرالزمان", "level": 1, "cost": "رایگان", "status": "بقا و غارت"},
-        "fantasy": {"name": "فانتزی", "level": 2, "cost": "5 کریستال مانا", "status": "جادوی باستانی بیدار شده"},
-        "cyber": {"name": "سایبری", "level": 3, "cost": "10 لیتر سوخت", "status": "تورم قطعات الکترونیکی"},
-        "space": {"name": "فضایی", "level": 5, "cost": "30 لیتر سوخت", "status": "حمله دزدان فضایی"}
-    }
-    
-    data = intel_data.get(world)
-    text = (
-        f"🖥 <b>گیت ورودی: دنیای {data['name']}</b>\n\n"
-        f"⚜️ <b>پیش‌نیاز سطح:</b> {data['level']}\n"
-        f"🎟 <b>هزینه سفر:</b> {data['cost']}\n"
-        f"📊 <b>وضعیت زنده:</b> {data['status']}\n\n"
-        "آیا برای پرش ابعادی آماده‌اید؟"
-    )
-    await callback.message.edit_text(text, reply_markup=intel_keyboard(world), parse_mode="HTML")
-    await callback.answer()
-
-# ==========================================
-# ✈️ هندلرهای سفر بین دنیاها و خرید منابع
-# ==========================================
-@dp.callback_query(F.data.startswith("buy_"))
-async def process_buy_resource(callback: types.CallbackQuery):
-    action = callback.data.split("_")
-    res_type = action[1]
-    amount = int(action[2])
-    
-    user = await get_user(callback.from_user.id)
-    balance = user[2]
-    
-    cost = 100 if res_type == "fuel" else 150
-    
-    if balance < cost:
-        return await callback.answer("⛔️ سکه کافی ندارید!", show_alert=True)
-        
-    await buy_resource(callback.from_user.id, res_type, amount, cost)
-    await callback.answer(f"✅ {amount} {res_type} خریداری شد!", show_alert=True)
-
-@dp.callback_query(F.data.startswith("travel_"))
-async def process_world_travel(callback: types.CallbackQuery):
-    world = callback.data.split("_")[1]
-    user = await get_user(callback.from_user.id)
-    current_world, level, fuel, mana = user[3], user[4], user[5], user[6]
-    
-    if current_world == world:
-        return await callback.answer("شما در حال حاضر در این دنیا هستید!", show_alert=True)
-        
-    # چک کردن پیش‌نیازها
-    fuel_cost, mana_cost = 0, 0
-    if world == "cyber":
-        if level < 3: return await callback.answer("⛔️ نیاز به سطح 3 دارید!", show_alert=True)
-        if fuel < 10: return await callback.answer("⛔️ سوخت کافی نیست!", show_alert=True)
-        fuel_cost = 10
-    elif world == "fantasy":
-        if level < 2: return await callback.answer("⛔️ نیاز به سطح 2 دارید!", show_alert=True)
-        if mana < 5: return await callback.answer("⛔️ کریستال مانا کافی نیست!", show_alert=True)
-        mana_cost = 5
-    elif world == "space":
-        if level < 5: return await callback.answer("⛔️ نیاز به سطح 5 دارید!", show_alert=True)
-        if fuel < 30: return await callback.answer("⛔️ سوخت کافی نیست!", show_alert=True)
-        fuel_cost = 30
-        
-    # کم کردن منابع و آپدیت دنیا
-    await update_world(callback.from_user.id, world, fuel_cost, mana_cost)
-    
-    text = (
-        "✨ <b>پرش ابعادی با موفقیت انجام شد!</b>\n\n"
-        f"شما اکنون در <b>دنیای {world.upper()}</b> فرود آمدید و منابع سفر کسر شد."
-    )
-    
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🔙 بازگشت به لیست دنیاها", callback_data="menu_worlds")
-    builder.button(text="🏠 مرکز فرماندهی", callback_data="menu_main")
-    builder.adjust(1, 1)
-    
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
-    await callback.answer("سفر با موفقیت انجام شد!")
+@dp.callback_query(F.data.in_({"menu_empire", "menu_bank", "menu_army"}))
+async def show_coming_soon(callback: types.CallbackQuery):
+    b = InlineKeyboardBuilder()
+    b.button(text="🔙 بازگشت", callback_data="menu_main")
+    await callback.message.edit_text("⚠️ این بخش در آپدیت بعدی فعال می‌شود.", reply_markup=b.as_markup())
 
 # ==========================================
 # 🔥 اجرای هسته ربات
 # ==========================================
 async def main():
     await init_db()
+    print("🤖 سیستم رادار زنده متصل شد. ربات آماده کار است...")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
