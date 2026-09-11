@@ -1,9 +1,9 @@
 import asyncio
 import logging
 import os
+import aiohttp
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # ==========================================
 # ⚙️ تنظیمات اولیه
@@ -15,79 +15,109 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # ==========================================
-# 🧩 کیبورد شیشه‌ای منوی اصلی (طبق چیدمان درخواستی)
+# 🧩 ساختار خام دکمه‌ها (Raw JSON برای API 9.4)
 # ==========================================
-def main_menu_keyboard():
-    b = InlineKeyboardBuilder()
-    
-    # اضافه کردن دکمه‌ها (از ایموجی‌های استاندارد استفاده شده است)
-    b.button(text="حساب کاربری 👤", callback_data="btn_profile")
-    b.button(text="بازار 🛒", callback_data="btn_market")
-    
-    b.button(text="داستانی 📜", callback_data="btn_story")
-    b.button(text="مولتی(چند جهانی) 🌍", callback_data="btn_multi")
-    
-    b.button(text="اسکین 🎭", callback_data="btn_skin")
-    b.button(text="ارتقا ⬆️", callback_data="btn_upgrade")
-    
-    b.button(text="ماموریت ها 🎯", callback_data="btn_missions") # این دکمه تکی و تمام‌عرض است
-    
-    b.button(text="جنگ ها ⚔️", callback_data="btn_wars")
-    b.button(text="بازار سیاه 🧳", callback_data="btn_blackmarket")
-    
-    b.button(text="فروشگاه 🏪", callback_data="btn_shop")
-    b.button(text="لیدربرد 🏆", callback_data="btn_leaderboard")
-    
-    b.button(text="کلن 🛡", callback_data="btn_clan")
-    b.button(text="اخبار 📰", callback_data="btn_news")
-    
-    b.button(text="راهنما 📖", callback_data="btn_help")
-    b.button(text="بستن منو ❌", callback_data="btn_close")
+# استفاده مستقیم از قابلیت‌های جدید style و icon_custom_emoji_id
+RAW_INLINE_KEYBOARD = [
+    # ردیف 1
+    [
+        {"text": "حساب کاربری", "callback_data": "btn_profile", "style": "primary", "icon_custom_emoji_id": "5987865893084861885"},
+        {"text": "بازار", "callback_data": "btn_market", "style": "success", "icon_custom_emoji_id": "5258024802010026053"}
+    ],
+    # ردیف 2
+    [
+        {"text": "داستانی", "callback_data": "btn_story", "style": "primary", "icon_custom_emoji_id": "5364052602357044385"},
+        {"text": "مولتی(چند جهانی)", "callback_data": "btn_multi", "style": "primary", "icon_custom_emoji_id": "5361741454685256344"}
+    ],
+    # ردیف 3
+    [
+        {"text": "اسکین", "callback_data": "btn_skin", "style": "primary", "icon_custom_emoji_id": "5987973065403797894"},
+        {"text": "ارتقا", "callback_data": "btn_upgrade", "style": "success", "icon_custom_emoji_id": "5375338737028841420"}
+    ],
+    # ردیف 4 (تکی)
+    [
+        {"text": "ماموریت ها", "callback_data": "btn_missions", "style": "primary", "icon_custom_emoji_id": "5282996373229167849"}
+    ],
+    # ردیف 5
+    [
+        {"text": "جنگ ها", "callback_data": "btn_wars", "style": "danger", "icon_custom_emoji_id": "5453991094435997597"},
+        {"text": "بازار سیاه", "callback_data": "btn_blackmarket", "style": "danger", "icon_custom_emoji_id": "5296387887984580731"}
+    ],
+    # ردیف 6
+    [
+        {"text": "فروشگاه", "callback_data": "btn_shop", "style": "success", "icon_custom_emoji_id": "5406683434124859552"},
+        {"text": "لیدربرد", "callback_data": "btn_leaderboard", "style": "primary", "icon_custom_emoji_id": "5415655814079723871"}
+    ],
+    # ردیف 7
+    [
+        {"text": "کلن", "callback_data": "btn_clan", "style": "primary", "icon_custom_emoji_id": "5978687277390371946"},
+        {"text": "اخبار", "callback_data": "btn_news", "style": "primary", "icon_custom_emoji_id": "5443038326535759644"}
+    ],
+    # ردیف 8
+    [
+        {"text": "راهنما", "callback_data": "btn_help", "style": "primary", "icon_custom_emoji_id": "5282843764451195532"},
+        {"text": "بستن منو", "callback_data": "btn_close", "style": "danger", "icon_custom_emoji_id": "5210952531676504517"}
+    ]
+]
 
-    # چیدمان دقیق دکمه‌ها: 2تا 2تا 2تا 1دونه 2تا 2تا 2تا 2تا
-    b.adjust(2, 2, 2, 1, 2, 2, 2, 2)
-    return b.as_markup()
+# ==========================================
+# 📡 متد ارسال مستقیم درخواست به API تلگرام
+# ==========================================
+async def send_empire_menu_raw(chat_id: int, reply_to_message_id: int):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    
+    text = (
+        '<tg-emoji emoji-id="5282974228377789040">👑</tg-emoji> <b>منوی اصلی بازی امپراطوری ها</b>\n\n'
+        '<tg-emoji emoji-id="5019617635629794161">👇</tg-emoji> بخش مورد نظر خود را انتخاب کنید:'
+    )
+    
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "reply_parameters": {"message_id": reply_to_message_id},
+        "reply_markup": {
+            "inline_keyboard": RAW_INLINE_KEYBOARD
+        }
+    }
+    
+    # ارسال Payload خام بدون دخالت Aiogram
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=payload) as response:
+            result = await response.json()
+            if not result.get("ok"):
+                logging.error(f"Telegram API Error: {result}")
 
 # ==========================================
-# 🚀 هندلر گروه: ریپلای با شنیدن کلمه کلیدی
+# 🚀 هندلرهای گروه
 # ==========================================
-# هر زمان کسی در گروه کلمه "امپراطوری ها" را بفرستد، این تابع اجرا می‌شود
 @dp.message(F.text.contains("امپراطوری ها"))
 async def trigger_empire_menu(message: types.Message):
-    # مطمئن می‌شویم که این اتفاق فقط در گروه‌ها بیفتد
     if message.chat.type in ["group", "supergroup"]:
-        
-        # استفاده از تگ <tg-emoji> برای نمایش ایموجی‌های متحرک پرمیوم در متن
-        text = (
-            '<tg-emoji emoji-id="5282974228377789040">👑</tg-emoji> <b>منوی اصلی بازی امپراطوری ها</b>\n\n'
-            '<tg-emoji emoji-id="5019617635629794161">👇</tg-emoji> بخش مورد نظر خود را انتخاب کنید:'
+        # فراخوانی متد کاستوم به جای message.reply پیش‌فرض
+        await send_empire_menu_raw(
+            chat_id=message.chat.id,
+            reply_to_message_id=message.message_id
         )
-        
-        # ربات روی پیام کاربر ریپلای می‌کند
-        await message.reply(text, reply_markup=main_menu_keyboard(), parse_mode="HTML")
 
 # ==========================================
 # 🎛 هندلرهای دکمه‌های شیشه‌ای
 # ==========================================
-# هندلر مخصوص دکمه "بستن منو"
 @dp.callback_query(F.data == "btn_close")
 async def close_menu(callback: types.CallbackQuery):
-    # پاک کردن پیام منو برای خلوت شدن گروه
     await callback.message.delete()
-    await callback.answer("منو با موفقیت بسته شد.", show_alert=False)
+    await callback.answer("منو بسته شد.", show_alert=False)
 
-# هندلر موقت برای بقیه دکمه‌ها تا خطا ندهند
 @dp.callback_query(F.data.startswith("btn_"))
 async def handle_other_buttons(callback: types.CallbackQuery):
-    # به جز دکمه بستن، بقیه دکمه‌ها این پیام پاپ‌آپ را نشان می‌دهند
     if callback.data != "btn_close":
-        await callback.answer("⏳ این بخش به زودی به بازی اضافه خواهد شد...", show_alert=True)
+        await callback.answer("⏳ این بخش در حال توسعه است...", show_alert=True)
 
 # ==========================================
-# 🔥 اجرای هسته ربات
+# 🔥 اجرای هسته
 # ==========================================
 async def main():
-    print("🤖 ربات با موفقیت روشن شد و منتظر شنیدن 'امپراطوری ها' در گروه‌هاست...")
+    print("🤖 ربات روشن شد (پشتیبانی از Telegram Bot API 9.4 فعال است)...")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
