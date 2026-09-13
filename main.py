@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import aiohttp
 import aiosqlite
 from aiogram import Bot, Dispatcher, F, types
@@ -21,7 +22,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # ==========================================
-# 🗄 دیتابیس (ذخیره عکس‌های ادمین)
+# 🗄 دیتابیس (ذخیره تنظیمات، عکس‌ها و کاراکترها)
 # ==========================================
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
@@ -33,21 +34,19 @@ async def init_db():
         ''')
         await db.commit()
 
-async def get_photo(menu_type: str):
+async def get_setting(key: str):
     async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute('SELECT value FROM settings WHERE key = ?', (f"photo_{menu_type}",)) as cursor:
+        async with db.execute('SELECT value FROM settings WHERE key = ?', (key,)) as cursor:
             row = await cursor.fetchone()
-            if row:
-                return row[0]
-    return None  # اگر عکسی تنظیم نشده باشد، مقدار None برمی‌گرداند
+            return row[0] if row else None
 
-async def set_photo(menu_type: str, file_id: str):
+async def set_setting(key: str, value: str):
     async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (f"photo_{menu_type}", file_id))
+        await db.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, value))
         await db.commit()
 
 # ==========================================
-# 🧩 ساختار دکمه‌ها قفل شده روی آیدی کاربر 
+# 🧩 ساختار دکمه‌ها قفل شده (منوی اصلی و داستانی)
 # ==========================================
 def get_raw_main_keyboard(user_id: int):
     return [
@@ -92,6 +91,24 @@ def get_raw_story_keyboard(user_id: int):
         ]
     ]
 
+# کیبورد کاراکترها (خواندن نام و ایموجی از دیتابیس)
+async def get_raw_character_keyboard(user_id: int):
+    chars = []
+    for i in range(1, 5):
+        name = await get_setting(f"char{i}_name") or f"کاراکتر {i}"
+        emoji_id = await get_setting(f"char{i}_emoji")
+        
+        btn = {"text": name, "callback_data": f"btn_selectchar_{i}_{user_id}"}
+        if emoji_id:
+            btn["icon_custom_emoji_id"] = emoji_id
+        chars.append(btn)
+        
+    return [
+        [chars[0], chars[1]], # ردیف اول: کاراکتر ۱ و ۲
+        [chars[2], chars[3]], # ردیف دوم: کاراکتر ۳ و ۴
+        [{"text": "بازگشت", "callback_data": f"btn_story_{user_id}", "icon_custom_emoji_id": "5210952531676504517"}] # بازگشت به داستانی
+    ]
+
 # ==========================================
 # 📝 متن‌های ربات 
 # ==========================================
@@ -115,6 +132,8 @@ STORY_TEXT = (
     'دراخور دشمن ساده ای نیست پس حواستو جمع کن تو دامش نیوفتی <tg-emoji emoji-id="5440660757194744323">⚠️</tg-emoji>'
 )
 
+CHAR_SELECTION_TEXT = 'کاراکتر مورد نظر خودرا انتخاب کنید <tg-emoji emoji-id="5019617635629794161">👇</tg-emoji>'
+
 # ==========================================
 # 📡 متدهای خام ارتباطی با تلگرام
 # ==========================================
@@ -132,25 +151,33 @@ async def send_raw_api(method: str, payload: dict):
 class AdminSetup(StatesGroup):
     waiting_for_main_photo = State()
     waiting_for_story_photo = State()
+    waiting_for_character_photo = State()
+    waiting_for_char_names = State()
 
-@dp.message(F.text == "تغییر عکس منو تاتاروس")
-async def cmd_change_main_photo(message: types.Message, state: FSMContext):
+@dp.message(F.text.in_({"تغییر عکس منو تاتاروس", "تغییر عکس اوپن داستانی", "تغییر عکس کاراکتر"}))
+async def cmd_change_photos(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID: return
-    await state.set_state(AdminSetup.waiting_for_main_photo)
-    await message.reply("📸 لطفاً عکس جدید برای **منوی اصلی** را ارسال کنید:")
-
-@dp.message(F.text == "تغییر عکس اوپن داستانی")
-async def cmd_change_story_photo(message: types.Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID: return
-    await state.set_state(AdminSetup.waiting_for_story_photo)
-    await message.reply("📸 لطفاً عکس جدید برای **بخش داستانی** را ارسال کنید:")
+    
+    if message.text == "تغییر عکس منو تاتاروس":
+        await state.set_state(AdminSetup.waiting_for_main_photo)
+        await message.reply("📸 عکس جدید برای **منوی اصلی** را ارسال کنید:")
+    elif message.text == "تغییر عکس اوپن داستانی":
+        await state.set_state(AdminSetup.waiting_for_story_photo)
+        await message.reply("📸 عکس جدید برای **بخش داستانی** را ارسال کنید:")
+    elif message.text == "تغییر عکس کاراکتر":
+        await state.set_state(AdminSetup.waiting_for_character_photo)
+        await message.reply("📸 عکس جدید برای **بخش انتخاب کاراکتر** را ارسال کنید:")
 
 @dp.message(F.photo, AdminSetup.waiting_for_main_photo)
 @dp.message(F.photo, AdminSetup.waiting_for_story_photo)
+@dp.message(F.photo, AdminSetup.waiting_for_character_photo)
 async def receive_admin_photo(message: types.Message, state: FSMContext):
     file_id = message.photo[-1].file_id
     current_state = await state.get_state()
-    menu_type = "main" if current_state == AdminSetup.waiting_for_main_photo.state else "story"
+    
+    if current_state == AdminSetup.waiting_for_main_photo.state: menu_type = "main"
+    elif current_state == AdminSetup.waiting_for_story_photo.state: menu_type = "story"
+    else: menu_type = "character"
     
     await state.update_data(temp_file_id=file_id, target_menu=menu_type)
     
@@ -164,12 +191,73 @@ async def process_admin_photo_confirm(callback: types.CallbackQuery, state: FSMC
     if callback.from_user.id != ADMIN_ID: return
     data = await state.get_data()
     if callback.data == "admin_confirm_photo":
-        await set_photo(data['target_menu'], data['temp_file_id'])
-        await callback.message.edit_caption(caption="✅ عکس ذخیره شد!")
+        await set_setting(f"photo_{data['target_menu']}", data['temp_file_id'])
+        await callback.message.edit_caption(caption="✅ عکس با موفقیت ذخیره شد!")
     else:
         await callback.message.edit_caption(caption="❌ عملیات رد شد.")
     await state.clear()
     await callback.answer()
+
+# ==========================================
+# 📝 مدیریت تنظیم اسامی کاراکترها (Loop FSM)
+# ==========================================
+@dp.message(F.text == "تغییر اسم کاراکتر ها")
+async def cmd_change_char_names(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID: return
+    await state.set_state(AdminSetup.waiting_for_char_names)
+    await state.update_data(current_char=1) # شروع از کاراکتر اول
+    await message.reply("تغییر اسم کاراکتر ها:\nاسم اولین کاراکتر را انتخاب کنید (میتوانید کد ایموجی را هم کنارش بنویسید):")
+
+@dp.message(AdminSetup.waiting_for_char_names)
+async def receive_char_name(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    current_char = data.get("current_char", 1)
+    
+    # هوش مصنوعی جداکننده متن از آیدی ایموجی (اعداد بالای 15 رقم)
+    raw_text = message.text
+    match = re.search(r'\b(\d{15,22})\b', raw_text)
+    
+    if match:
+        emoji_id = match.group(1)
+        name = raw_text.replace(emoji_id, '').strip()
+    else:
+        emoji_id = None
+        name = raw_text.strip()
+        
+    await state.update_data(temp_name=name, temp_emoji=emoji_id)
+    
+    b = InlineKeyboardBuilder()
+    b.button(text="✅ بله", callback_data="char_confirm_yes")
+    b.button(text="❌ خیر", callback_data="char_confirm_no")
+    
+    confirm_text = f"آیا این اسم تایید است؟\n\nنام: `{name}`"
+    if emoji_id: confirm_text += f"\nکد ایموجی استخراج شده: `{emoji_id}`"
+    
+    await message.reply(confirm_text, reply_markup=b.as_markup(), parse_mode="Markdown")
+
+@dp.callback_query(F.data.in_({"char_confirm_yes", "char_confirm_no"}))
+async def process_char_name_confirm(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID: return
+    data = await state.get_data()
+    current_char = data.get("current_char", 1)
+    
+    if callback.data == "char_confirm_yes":
+        await set_setting(f"char{current_char}_name", data["temp_name"])
+        if data["temp_emoji"]:
+            await set_setting(f"char{current_char}_emoji", data["temp_emoji"])
+        else:
+            await set_setting(f"char{current_char}_emoji", "") # پاک کردن ایموجی قبلی در صورت نداشتن
+        await callback.message.edit_text(f"✅ اسم کاراکتر {current_char} با موفقیت ذخیره شد.")
+    else:
+        await callback.message.edit_text(f"❌ اسمی برای کاراکتر {current_char} ذخیره نشد.")
+        
+    next_char = current_char + 1
+    if next_char > 4:
+        await callback.message.answer("🎉 تنظیمات اسم هر ۴ کاراکتر به پایان رسید.")
+        await state.clear()
+    else:
+        await state.update_data(current_char=next_char)
+        await callback.message.answer(f"حالا اسم کاراکتر {next_char} را انتخاب کنید:")
 
 # ==========================================
 # 🚀 هندلر گروه (فراخوانی تاتاروس)
@@ -178,7 +266,7 @@ async def process_admin_photo_confirm(callback: types.CallbackQuery, state: FSMC
 async def trigger_tatarus_menu(message: types.Message):
     if message.chat.type in ["group", "supergroup"]:
         user_id = message.from_user.id
-        photo = await get_photo("main")
+        photo = await get_setting("photo_main")
         
         payload = {
             "chat_id": message.chat.id,
@@ -201,7 +289,7 @@ async def trigger_tatarus_menu(message: types.Message):
 # 🔄 تابع جادویی مدیریت جابجایی بین منوها
 # ==========================================
 async def transition_menu(callback: types.CallbackQuery, target_menu: str, text: str, keyboard: list):
-    target_photo = await get_photo(target_menu)
+    target_photo = await get_setting(f"photo_{target_menu}")
     has_media = bool(callback.message.photo)
     chat_id = callback.message.chat.id
     msg_id = callback.message.message_id
@@ -243,9 +331,8 @@ async def transition_menu(callback: types.CallbackQuery, target_menu: str, text:
 async def handle_all_buttons(callback: types.CallbackQuery):
     parts = callback.data.split("_")
     action = parts[1]
-    owner_id = int(parts[2])
+    owner_id = int(parts[-1]) # آیدی همیشه قسمت آخر callback_data است
     
-    # اینجا باگ املایی برطرف شد (از callback.fromuser.id به callback.from_user.id)
     if callback.from_user.id != owner_id:
         return await callback.answer("⛔️ این منو متعلق به شما نیست!", show_alert=True)
 
@@ -257,9 +344,19 @@ async def handle_all_buttons(callback: types.CallbackQuery):
         await transition_menu(callback, "story", STORY_TEXT, get_raw_story_keyboard(owner_id))
         return await callback.answer()
 
+    elif action == "continue":
+        # دریافت کیبورد کاراکترها به صورت زنده از دیتابیس
+        char_keyboard = await get_raw_character_keyboard(owner_id)
+        await transition_menu(callback, "character", CHAR_SELECTION_TEXT, char_keyboard)
+        return await callback.answer()
+
     elif action == "backmain":
         await transition_menu(callback, "main", MAIN_TEXT, get_raw_main_keyboard(owner_id))
         return await callback.answer()
+        
+    elif action == "selectchar":
+        char_number = parts[2]
+        return await callback.answer(f"🎉 شما کاراکتر {char_number} را انتخاب کردید! (در حال توسعه)", show_alert=True)
 
     else:
         await callback.answer("⏳ در حال توسعه...", show_alert=True)
@@ -269,7 +366,7 @@ async def handle_all_buttons(callback: types.CallbackQuery):
 # ==========================================
 async def main():
     await init_db()
-    print("🤖 ربات تاتاروس (باگ دکمه‌ها فیکس شد) روشن است!")
+    print("🤖 ربات تاتاروس با سیستم انتخاب کاراکتر هوشمند روشن شد!")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
