@@ -189,7 +189,6 @@ async def trigger_tatarus_menu(message: types.Message):
             }
         }
         
-        # اگر عکس تنظیم شده بود sendPhoto در غیر این صورت sendMessage
         if photo:
             payload["photo"] = photo
             payload["caption"] = MAIN_TEXT
@@ -199,18 +198,16 @@ async def trigger_tatarus_menu(message: types.Message):
             await send_raw_api("sendMessage", payload)
 
 # ==========================================
-# 🔄 تابع جادویی مدیریت جابجایی بین منوها (با/بدون عکس)
+# 🔄 تابع جادویی مدیریت جابجایی بین منوها
 # ==========================================
 async def transition_menu(callback: types.CallbackQuery, target_menu: str, text: str, keyboard: list):
     target_photo = await get_photo(target_menu)
-    has_media = bool(callback.message.photo) # آیا پیام فعلی عکس دارد؟
+    has_media = bool(callback.message.photo)
     chat_id = callback.message.chat.id
     msg_id = callback.message.message_id
     
     if target_photo:
-        # اگر منوی مقصد عکس دارد
         if has_media:
-            # هر دو عکس دارند -> فقط ویرایش مدیا
             payload = {
                 "chat_id": chat_id, "message_id": msg_id,
                 "media": {"type": "photo", "media": target_photo, "caption": text, "parse_mode": "HTML"},
@@ -218,7 +215,6 @@ async def transition_menu(callback: types.CallbackQuery, target_menu: str, text:
             }
             await send_raw_api("editMessageMedia", payload)
         else:
-            # فعلی متنی است، مقصد عکس‌دار -> پیام قبلی باید پاک و جدید ارسال شود
             await callback.message.delete()
             payload = {
                 "chat_id": chat_id, "photo": target_photo, "caption": text,
@@ -226,16 +222,13 @@ async def transition_menu(callback: types.CallbackQuery, target_menu: str, text:
             }
             await send_raw_api("sendPhoto", payload)
     else:
-        # اگر منوی مقصد عکس ندارد
         if not has_media:
-            # هر دو متنی هستند -> فقط ویرایش متن
             payload = {
                 "chat_id": chat_id, "message_id": msg_id, "text": text,
                 "parse_mode": "HTML", "reply_markup": {"inline_keyboard": keyboard}
             }
             await send_raw_api("editMessageText", payload)
         else:
-            # فعلی عکس‌دار است، مقصد متنی -> پیام قبلی باید پاک و جدید ارسال شود
             await callback.message.delete()
             payload = {
                 "chat_id": chat_id, "text": text,
@@ -252,7 +245,8 @@ async def handle_all_buttons(callback: types.CallbackQuery):
     action = parts[1]
     owner_id = int(parts[2])
     
-    if callback.fromuser.id != owner_id:
+    # اینجا باگ املایی برطرف شد (از callback.fromuser.id به callback.from_user.id)
+    if callback.from_user.id != owner_id:
         return await callback.answer("⛔️ این منو متعلق به شما نیست!", show_alert=True)
 
     if action == "close":
@@ -275,7 +269,7 @@ async def handle_all_buttons(callback: types.CallbackQuery):
 # ==========================================
 async def main():
     await init_db()
-    print("🤖 ربات تاتاروس (بدون عکس پیش‌فرض) با موفقیت روشن شد!")
+    print("🤖 ربات تاتاروس (باگ دکمه‌ها فیکس شد) روشن است!")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
