@@ -16,10 +16,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "توکن_را_اینجا_بگذار")
 ADMIN_ID = int(os.getenv("ADMIN_ID", 123456789)) # آیدی عددی مالک ربات
 DB_NAME = "tatarus.db"
 
-# عکس‌های پیش‌فرض موقت (تا زمانی که ادمین عکسی تنظیم نکرده باشد)
-DEFAULT_MAIN_PHOTO = "https://placehold.co/800x400/1a1a1a/FFF?text=Tatarus+Main+Menu"
-DEFAULT_STORY_PHOTO = "https://placehold.co/800x400/1a1a1a/FFF?text=Tatarus+Story+Menu"
-
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -37,13 +33,13 @@ async def init_db():
         ''')
         await db.commit()
 
-async def get_photo(menu_type: str) -> str:
+async def get_photo(menu_type: str):
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute('SELECT value FROM settings WHERE key = ?', (f"photo_{menu_type}",)) as cursor:
             row = await cursor.fetchone()
             if row:
                 return row[0]
-    return DEFAULT_MAIN_PHOTO if menu_type == "main" else DEFAULT_STORY_PHOTO
+    return None  # اگر عکسی تنظیم نشده باشد، مقدار None برمی‌گرداند
 
 async def set_photo(menu_type: str, file_id: str):
     async with aiosqlite.connect(DB_NAME) as db:
@@ -51,9 +47,8 @@ async def set_photo(menu_type: str, file_id: str):
         await db.commit()
 
 # ==========================================
-# 🧩 ساختار دکمه‌ها قفل شده روی آیدی کاربر (User-Specific)
+# 🧩 ساختار دکمه‌ها قفل شده روی آیدی کاربر 
 # ==========================================
-# با دریافت user_id، آیدی شخص به انتهای نام دکمه می‌چسبد
 def get_raw_main_keyboard(user_id: int):
     return [
         [
@@ -121,7 +116,7 @@ STORY_TEXT = (
 )
 
 # ==========================================
-# 📡 متدهای خام ارتباطی با تلگرام (برای عکس و مدیا)
+# 📡 متدهای خام ارتباطی با تلگرام
 # ==========================================
 async def send_raw_api(method: str, payload: dict):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/{method}"
@@ -138,21 +133,18 @@ class AdminSetup(StatesGroup):
     waiting_for_main_photo = State()
     waiting_for_story_photo = State()
 
-# ۱. دستور تغییر عکس منو
 @dp.message(F.text == "تغییر عکس منو تاتاروس")
 async def cmd_change_main_photo(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID: return
     await state.set_state(AdminSetup.waiting_for_main_photo)
     await message.reply("📸 لطفاً عکس جدید برای **منوی اصلی** را ارسال کنید:")
 
-# ۲. دستور تغییر عکس داستانی
 @dp.message(F.text == "تغییر عکس اوپن داستانی")
 async def cmd_change_story_photo(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID: return
     await state.set_state(AdminSetup.waiting_for_story_photo)
     await message.reply("📸 لطفاً عکس جدید برای **بخش داستانی** را ارسال کنید:")
 
-# ۳. دریافت عکس از ادمین و تاییدیه
 @dp.message(F.photo, AdminSetup.waiting_for_main_photo)
 @dp.message(F.photo, AdminSetup.waiting_for_story_photo)
 async def receive_admin_photo(message: types.Message, state: FSMContext):
@@ -160,120 +152,130 @@ async def receive_admin_photo(message: types.Message, state: FSMContext):
     current_state = await state.get_state()
     menu_type = "main" if current_state == AdminSetup.waiting_for_main_photo.state else "story"
     
-    # ذخیره موقت آیدی عکس در استیت
     await state.update_data(temp_file_id=file_id, target_menu=menu_type)
     
-    # کیبورد تایید یا رد
     b = InlineKeyboardBuilder()
     b.button(text="✅ تایید کردن", callback_data="admin_confirm_photo")
     b.button(text="❌ رد کردن", callback_data="admin_reject_photo")
-    
     await message.reply_photo(photo=file_id, caption="آیا این عکس تایید است؟", reply_markup=b.as_markup())
 
-# ۴. پردازش دکمه‌های تایید و رد ادمین
 @dp.callback_query(F.data.in_({"admin_confirm_photo", "admin_reject_photo"}))
 async def process_admin_photo_confirm(callback: types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID: return
-    
     data = await state.get_data()
     if callback.data == "admin_confirm_photo":
-        # ذخیره عکس در دیتابیس
         await set_photo(data['target_menu'], data['temp_file_id'])
-        await callback.message.edit_caption(caption="✅ عکس با موفقیت در دیتابیس ذخیره شد و در کل ربات اعمال شد.")
+        await callback.message.edit_caption(caption="✅ عکس ذخیره شد!")
     else:
-        await callback.message.edit_caption(caption="❌ عملیات رد شد. عکس تغییری نکرد.")
-        
+        await callback.message.edit_caption(caption="❌ عملیات رد شد.")
     await state.clear()
     await callback.answer()
 
 # ==========================================
-# 🚀 هندلر گروه (فراخوانی تاتاروس توسط کاربران)
+# 🚀 هندلر گروه (فراخوانی تاتاروس)
 # ==========================================
 @dp.message(F.text.contains("تاتاروس") & ~F.text.contains("تغییر عکس"))
 async def trigger_tatarus_menu(message: types.Message):
     if message.chat.type in ["group", "supergroup"]:
         user_id = message.from_user.id
-        photo_url_or_id = await get_photo("main")
+        photo = await get_photo("main")
         
         payload = {
             "chat_id": message.chat.id,
-            "photo": photo_url_or_id,
-            "caption": MAIN_TEXT,
             "parse_mode": "HTML",
             "reply_parameters": {"message_id": message.message_id},
             "reply_markup": {
                 "inline_keyboard": get_raw_main_keyboard(user_id)
             }
         }
-        # متد به sendPhoto تغییر کرد تا عکس ارسال شود
-        await send_raw_api("sendPhoto", payload)
+        
+        # اگر عکس تنظیم شده بود sendPhoto در غیر این صورت sendMessage
+        if photo:
+            payload["photo"] = photo
+            payload["caption"] = MAIN_TEXT
+            await send_raw_api("sendPhoto", payload)
+        else:
+            payload["text"] = MAIN_TEXT
+            await send_raw_api("sendMessage", payload)
+
+# ==========================================
+# 🔄 تابع جادویی مدیریت جابجایی بین منوها (با/بدون عکس)
+# ==========================================
+async def transition_menu(callback: types.CallbackQuery, target_menu: str, text: str, keyboard: list):
+    target_photo = await get_photo(target_menu)
+    has_media = bool(callback.message.photo) # آیا پیام فعلی عکس دارد؟
+    chat_id = callback.message.chat.id
+    msg_id = callback.message.message_id
+    
+    if target_photo:
+        # اگر منوی مقصد عکس دارد
+        if has_media:
+            # هر دو عکس دارند -> فقط ویرایش مدیا
+            payload = {
+                "chat_id": chat_id, "message_id": msg_id,
+                "media": {"type": "photo", "media": target_photo, "caption": text, "parse_mode": "HTML"},
+                "reply_markup": {"inline_keyboard": keyboard}
+            }
+            await send_raw_api("editMessageMedia", payload)
+        else:
+            # فعلی متنی است، مقصد عکس‌دار -> پیام قبلی باید پاک و جدید ارسال شود
+            await callback.message.delete()
+            payload = {
+                "chat_id": chat_id, "photo": target_photo, "caption": text,
+                "parse_mode": "HTML", "reply_markup": {"inline_keyboard": keyboard}
+            }
+            await send_raw_api("sendPhoto", payload)
+    else:
+        # اگر منوی مقصد عکس ندارد
+        if not has_media:
+            # هر دو متنی هستند -> فقط ویرایش متن
+            payload = {
+                "chat_id": chat_id, "message_id": msg_id, "text": text,
+                "parse_mode": "HTML", "reply_markup": {"inline_keyboard": keyboard}
+            }
+            await send_raw_api("editMessageText", payload)
+        else:
+            # فعلی عکس‌دار است، مقصد متنی -> پیام قبلی باید پاک و جدید ارسال شود
+            await callback.message.delete()
+            payload = {
+                "chat_id": chat_id, "text": text,
+                "parse_mode": "HTML", "reply_markup": {"inline_keyboard": keyboard}
+            }
+            await send_raw_api("sendMessage", payload)
 
 # ==========================================
 # 🎛 هندلرهای دکمه‌های شیشه‌ای (Anti-Hijack)
 # ==========================================
 @dp.callback_query(F.data.startswith("btn_"))
 async def handle_all_buttons(callback: types.CallbackQuery):
-    # استخراج دستور و آیدی صاحب منو (مثال: btn_story_123456789)
     parts = callback.data.split("_")
     action = parts[1]
     owner_id = int(parts[2])
     
-    # ⛔️ قفل امنیتی: اگر کسی غیر از صاحب منو کلیک کرد
-    if callback.from_user.id != owner_id:
-        return await callback.answer("⛔️ این منو متعلق به شما نیست! خودت تاتاروس رو صدا بزن.", show_alert=True)
+    if callback.fromuser.id != owner_id:
+        return await callback.answer("⛔️ این منو متعلق به شما نیست!", show_alert=True)
 
-    # ✅ صاحب منو کلیک کرده است
     if action == "close":
         await callback.message.delete()
         return await callback.answer("منو بسته شد.", show_alert=False)
         
     elif action == "story":
-        photo_url_or_id = await get_photo("story")
-        payload = {
-            "chat_id": callback.message.chat.id,
-            "message_id": callback.message.message_id,
-            "media": {
-                "type": "photo",
-                "media": photo_url_or_id,
-                "caption": STORY_TEXT,
-                "parse_mode": "HTML"
-            },
-            "reply_markup": {
-                "inline_keyboard": get_raw_story_keyboard(owner_id)
-            }
-        }
-        # استفاده از editMessageMedia برای تغییر نرم عکس و متن
-        await send_raw_api("editMessageMedia", payload)
+        await transition_menu(callback, "story", STORY_TEXT, get_raw_story_keyboard(owner_id))
         return await callback.answer()
 
     elif action == "backmain":
-        photo_url_or_id = await get_photo("main")
-        payload = {
-            "chat_id": callback.message.chat.id,
-            "message_id": callback.message.message_id,
-            "media": {
-                "type": "photo",
-                "media": photo_url_or_id,
-                "caption": MAIN_TEXT,
-                "parse_mode": "HTML"
-            },
-            "reply_markup": {
-                "inline_keyboard": get_raw_main_keyboard(owner_id)
-            }
-        }
-        await send_raw_api("editMessageMedia", payload)
+        await transition_menu(callback, "main", MAIN_TEXT, get_raw_main_keyboard(owner_id))
         return await callback.answer()
 
     else:
-        # سایر دکمه‌ها
-        await callback.answer("⏳ این بخش در حال توسعه است...", show_alert=True)
+        await callback.answer("⏳ در حال توسعه...", show_alert=True)
 
 # ==========================================
 # 🔥 اجرای هسته
 # ==========================================
 async def main():
     await init_db()
-    print("🤖 ربات تاتاروس مجهز به دیتابیس تصویر و قفل منو روشن شد!")
+    print("🤖 ربات تاتاروس (بدون عکس پیش‌فرض) با موفقیت روشن شد!")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot)
