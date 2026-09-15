@@ -44,7 +44,6 @@ async def set_setting(key: str, value: str):
 # 🧩 دریافت ایموجی‌های داینامیک
 # ==========================================
 async def get_emoji(btn_name: str, default_id: str):
-    # چک می‌کند آیا ادمین ایموجی جدیدی برای این دکمه ست کرده یا نه
     return await get_setting(f"emoji_{btn_name}", default_id)
 
 # ==========================================
@@ -132,12 +131,27 @@ async def get_raw_character_keyboard(user_id: int):
 # 📝 متن‌ها و پردازشگر هوشمند ایموجی
 # ==========================================
 def parse_emojis(text: str) -> str:
-    # اعداد طولانی (آیدی ایموجی) را پیدا کرده و به تگ تبدیل می‌کند
     return re.sub(r'(\d{15,22})', r'<tg-emoji emoji-id="\1">✨</tg-emoji>', text)
 
 MAIN_TEXT = parse_emojis("5282974228377789040 <b>منوی اصلی بازی تاتاروس</b>\n\n5019617635629794161 بخش مورد نظر خود را انتخاب کنید:")
 GAME_MENU_TEXT = parse_emojis("5282974228377789040 <b>منوی داستانی تاتاروس</b>\n\n5019617635629794161 بخش مورد نظر خود را انتخاب کنید:")
 CHAR_SELECTION_TEXT = parse_emojis("کاراکتر مورد نظر خودرا انتخاب کنید 5019617635629794161")
+
+# متن اوپنینگ داستانی (اصلاح شده و کامل)
+STORY_TEXT = (
+    'سلام <tg-emoji emoji-id="5296480809602023717">✨</tg-emoji>\n'
+    'به بازی تاتاروس خوش آمدید <tg-emoji emoji-id="5296349143084595007">✨</tg-emoji>\n\n'
+    'با فشار دادن/کلیک کردن روی دکمه شروع وارد دنیای فراموش شده میشید.<tg-emoji emoji-id="5303073678890662588">✨</tg-emoji>\n\n'
+    'دنیای فراموش شده جای افرادیه که در دنیای خودشون مرتکب اشتباهات زیادی شدن و تبعید شدن به دنیای فراموش شده.<tg-emoji emoji-id="5296785692150497491">✨</tg-emoji>\n\n'
+    'برای اینکه بتونید از دنیای فراموش شده فرار کنید مجموعه ای از ماموریت ها و دشمن های مختلفی رو باید پشت سر بزارید.<tg-emoji emoji-id="5453991094435997597">✨</tg-emoji>\n\n'
+    'باید در طول انجام ماموریت و مبارزه حواستون باشه که نیازمند هستید به منابع مختلف،\n'
+    'مثل سکه، الماس و ...<tg-emoji emoji-id="5213094908608392768">✨</tg-emoji>\n\n'
+    '<tg-emoji emoji-id="5395695537687123235">✨</tg-emoji> در طول مبارزات به شما مقدار قابل توجهی منابع تعلق میگیره ولی همیشه به این معنا نیست که قراره کافی باشن پس بهتره به بخش ماموریت ها هم سر بزنید<tg-emoji emoji-id="5395695537687123235">✨</tg-emoji>\n\n'
+    'اولین دشمن شما دراخور هستش برای کشتن اون نیاز به\n\n'
+    ' 45،000 سکه دارید <tg-emoji emoji-id="5282996373229167849">✨</tg-emoji>\n\n'
+    'و 1750 XP خون لازم دارید🩸\n\n'
+    'دراخور دشمن ساده ای نیست پس حواستو جمع کن تو دامش نیوفتی<tg-emoji emoji-id="5440660757194744323">✨</tg-emoji>'
+)
 
 # ==========================================
 # 📡 ارتباط خام
@@ -155,9 +169,7 @@ async def send_raw_api(method: str, payload: dict):
 class AdminSetup(StatesGroup):
     waiting_for_photo = State()
     waiting_for_emoji = State()
-    # راهنما متنی
     guide_text_page = State()
-    # راهنما عکسی
     guide_photo_page = State()
 
 # 1. تغییر عکس‌ها
@@ -222,7 +234,7 @@ async def confirm_guide_text(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     page = data.get("current_page", 1)
     await set_setting(f"guide_text_{page}", data["temp_text"])
-    await set_setting("guide_pages_count", str(page)) # آپدیت تعداد کل صفحات
+    await set_setting("guide_pages_count", str(page)) 
     
     b = InlineKeyboardBuilder()
     b.button(text="✅ بله", callback_data="guide_next_page_yes")
@@ -283,7 +295,7 @@ async def confirm_photo(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
 
 # ==========================================
-# 🚀 تریگر دقیق کلمه "تاتاروس"
+# 🚀 تریگر دقیق کلمه "تاتاروس" (فقط به صورت خالی)
 # ==========================================
 @dp.message(F.text == "تاتاروس")
 async def trigger_tatarus_menu(message: types.Message):
@@ -349,21 +361,25 @@ async def handle_all_buttons(callback: types.CallbackQuery):
     
     elif action == "story":
         kb = await get_raw_story_keyboard(owner_id)
-        # متن داستانی رو اینجا می‌توانی کامل بگذاری
-        STORY_TEXT = parse_emojis("سلام 5296480809602023717\nبه بازی تاتاروس خوش آمدید 5296349143084595007\n\nبرای کشتن دراخور 45،000 سکه نیاز داری 5282996373229167849")
+        # فراخوانی متن داستان با ایموجی‌های کامل
         await transition_menu(callback, "photo_story", STORY_TEXT, kb)
+        return await callback.answer()
         
     elif action == "backmain":
         kb = await get_raw_main_keyboard(owner_id)
+        # دکمه بازگشت در منوی داستانی پیام را به منوی اصلی برمی‌گرداند
         await transition_menu(callback, "photo_main", MAIN_TEXT, kb)
+        return await callback.answer()
         
     elif action == "continue":
         kb = await get_raw_character_keyboard(owner_id)
         await transition_menu(callback, "photo_character", CHAR_SELECTION_TEXT, kb)
+        return await callback.answer()
         
     elif action == "selectchar":
         kb = await get_raw_gamemenu_keyboard(owner_id)
         await transition_menu(callback, "photo_gamemenu", GAME_MENU_TEXT, kb)
+        return await callback.answer()
         
     elif action == "guide":
         page = int(parts[2])
@@ -381,10 +397,12 @@ async def handle_all_buttons(callback: types.CallbackQuery):
         kb.append([{"text": "بازگشت", "callback_data": f"btn_backgamemenu_{owner_id}"}])
         
         await transition_menu(callback, f"photo_guide_{page}", text_parsed, kb)
+        return await callback.answer()
 
     elif action == "backgamemenu":
         kb = await get_raw_gamemenu_keyboard(owner_id)
         await transition_menu(callback, "photo_gamemenu", GAME_MENU_TEXT, kb)
+        return await callback.answer()
 
     else:
         await callback.answer("⏳ در حال توسعه...", show_alert=True)
@@ -394,7 +412,7 @@ async def handle_all_buttons(callback: types.CallbackQuery):
 # ==========================================
 async def main():
     await init_db()
-    print("🤖 ربات تاتاروس (سیستم داینامیک ایموجی و راهنما) روشن شد!")
+    print("🤖 ربات تاتاروس: متن اوپنینگ و بازگشت داستانی فیکس شد!")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
