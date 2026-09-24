@@ -53,13 +53,15 @@ async def set_setting(key: str, value: str):
         await db.commit()
 
 # ==========================================
-# 🧩 ایموجی و پردازشگر متن
+# 🧩 ایموجی و پردازشگر متن (آپدیت شده برای شماره کارت)
 # ==========================================
 async def get_emoji(btn_name: str, default_id: str):
     return await get_setting(f"emoji_{btn_name}", default_id)
 
 def parse_emojis(text: str) -> str:
-    return re.sub(r'(\d{15,22})', r'<tg-emoji emoji-id="\1">✨</tg-emoji>', text)
+    # 🔴 ارتقا: فقط اعداد 18 تا 22 رقمی تبدیل به ایموجی می‌شوند 
+    # این کار باعث می‌شود شماره کارت 16 رقمی با ایموجی اشتباه گرفته نشود!
+    return re.sub(r'(?<!\d)(\d{18,22})(?!\d)', r'<tg-emoji emoji-id="\1">✨</tg-emoji>', text)
 
 MAIN_TEXT = parse_emojis("5282974228377789040 <b>منوی اصلی بازی تاتاروس</b>\n\n5019617635629794161 بخش مورد نظر خود را انتخاب کنید:")
 GAME_MENU_TEXT = parse_emojis("5282974228377789040 <b>منوی داستانی تاتاروس</b>\n\n5019617635629794161 بخش مورد نظر خود را انتخاب کنید:")
@@ -248,7 +250,9 @@ async def receive_text_input(message: types.Message, state: FSMContext):
     b = InlineKeyboardBuilder()
     b.button(text="✅ بله", callback_data="admin_confirm_text")
     b.button(text="❌ خیر", callback_data="admin_reject")
-    await message.reply(f"آیا متن تایید است؟\n\n{parse_emojis(message.text)}", reply_markup=b.as_markup(), parse_mode="HTML")
+    
+    parsed_text = parse_emojis(message.text)
+    await message.reply(f"آیا متن تایید است؟\n\n{parsed_text}", reply_markup=b.as_markup(), parse_mode="HTML")
 
 @dp.message(F.text, AdminSetup.waiting_for_emoji_btn_name)
 async def receive_emoji_btn_name(message: types.Message, state: FSMContext):
@@ -294,7 +298,8 @@ async def reject_admin(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(AdminSetup.waiting_for_char_names)
 async def receive_char_name(message: types.Message, state: FSMContext):
     raw_text = message.text
-    match = re.search(r'\b(\d{15,22})\b', raw_text)
+    # به روز رسانی رگکس برای کاراکترها هم مشابه قبل
+    match = re.search(r'\b(\d{18,22})\b', raw_text)
     if match:
         emoji_id = match.group(1)
         name = raw_text.replace(emoji_id, '').strip()
@@ -587,7 +592,7 @@ async def transition_menu(callback: types.CallbackQuery, photo_key: str, text: s
             await send_raw_api("sendMessage", payload)
 
 # ==========================================
-# 🎛 هندلرهای دکمه‌های شیشه‌ای
+# 🎛 هندلرهای دکمه‌های شیشه‌ای کاربری
 # ==========================================
 @dp.callback_query(F.data.startswith("btn_"))
 async def handle_all_buttons(callback: types.CallbackQuery):
@@ -632,7 +637,6 @@ async def handle_all_buttons(callback: types.CallbackQuery):
         weapon_type = parts[2]
         weapon_fa = [k for k, v in WEAPONS.items() if v == weapon_type][0]
         weapon_text = parse_emojis(f"بخش اختصاصی سلاح {weapon_fa} (در حال توسعه)")
-        
         kb = [[{"text": "بازگشت", "callback_data": f"btn_backupgrade_{owner_id}", "icon_custom_emoji_id": await get_emoji("بازگشت", "5785177332595561481")}]]
         await transition_menu(callback, f"photo_weapon_{weapon_type}", weapon_text, kb)
         return await callback.answer()
@@ -714,7 +718,7 @@ async def main():
     await init_db()
     me = await bot.get_me()
     BOT_USERNAME = me.username
-    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) با پنل مدیریت گرافیکی روشن شد!")
+    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) - باگ شماره کارت فیکس شد!")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
