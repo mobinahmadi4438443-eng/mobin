@@ -9,7 +9,7 @@ from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # ==========================================
 # ⚙️ تنظیمات اولیه
@@ -53,19 +53,20 @@ async def set_setting(key: str, value: str):
         await db.commit()
 
 # ==========================================
-# 🧩 سیستم هوشمند ایموجی و پروگرس بار
+# 🧩 سیستم هوشمند ایموجی و دکمه‌ساز
 # ==========================================
 async def get_emoji(btn_name: str, default_id: str):
     return await get_setting(f"emoji_{btn_name}", default_id)
 
+# فرمول ضدگلوله برای تبدیل متن ادمین به ایموجی پرمیوم (بدون خراب کردن HTML)
 def parse_emojis(text: str) -> str:
     return re.sub(r'(?<!["\'\d])(\d{15,22})(?!["\'\d])', r'<tg-emoji emoji-id="\1">✨</tg-emoji>', text)
 
-# تابع تولید مستقیم ایموجی پرمیوم (بسیار امن برای جلوگیری از کرش HTML)
+# تابع کمکی برای تولید مستقیم ایموجی در متن‌های لایو
 def e(eid: str, fallback="✨") -> str:
     return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
 
-# تابع ساخت پروگرس بار متحرک با کدهای ایموجی پرمیوم
+# تابع ساخت پروگرس بار متحرک با کدهای پرمیوم
 def get_progress_bar(current: int, total: int, length: int, fill_id: str, empty_id: str) -> str:
     if total <= 0: total = 1
     filled = int((current / total) * length)
@@ -78,24 +79,67 @@ def get_progress_bar(current: int, total: int, length: int, fill_id: str, empty_
     
     return (fill_tag * filled) + (empty_tag * empty)
 
-# ==========================================
-# 📝 متون گرافیکی ربات
-# ==========================================
-MAIN_TEXT = parse_emojis("5282974228377789040 <b>منوی اصلی بازی تاتاروس</b>\n\n5019617635629794161 بخش مورد نظر خود را انتخاب کنید:")
-GAME_MENU_TEXT = parse_emojis("5282974228377789040 <b>منوی داستانی تاتاروس</b>\n\n5019617635629794161 بخش مورد نظر خود را انتخاب کنید:")
-CHAR_SELECTION_TEXT = parse_emojis("کاراکتر مورد نظر خودرا انتخاب کنید 5019617635629794161")
+# سیستم ساخت دکمه شیشه‌ای حاوی ایموجی پرمیوم
+async def btn(text: str, cb_data: str, emoji_name: str, default_emoji: str):
+    emoji_id = await get_emoji(emoji_name, default_emoji)
+    button = {"text": text, "callback_data": cb_data}
+    if emoji_id and str(emoji_id).strip().isdigit():
+        button["icon_custom_emoji_id"] = str(emoji_id).strip()
+    return button
 
-BATTLE_INTRO_TEXT = parse_emojis(
-    '5395695537687123235 <b>توجه</b> 5395695537687123235                                  5395695537687123235 <b>توجه</b> 5395695537687123235\n\n'
-    'مبارز، تو در آستانه ورود به اولین دروازه نبرد هستی!\n\n'
-    'حریف اولت <b>دراخور</b> هستش 6021493696011180326\n'
-    'هیولای بی‌رحمی که از تاریک‌ترین نقاط دنیای وِراث به تاتاروس تبعید شده. 6021562582991640411\n\n'
-    'بر اساس قوانین وراث، دراخور <b>۱۵,۰۰۰ HP</b> جان دارد. برای شکست دادن اون با سلاح فعلی‌ات (چاقو)، نیاز به حداقل <b>۱۰۰ حمله دقیق و ۵۰۰ دقیقه مبارزه خالص</b> زمان هستش! 5917787905308234080\n\n'
-    'در این نبرد پینگ‌پونگی، به ازای هر ضربه‌ای که به دراخور میزنی، او هم به تو آسیب می‌رساند! پس برای زنده ماندن به <b>سکه (برای خرید مداوم HP)</b> و برای پیشرفت به <b>XP</b> بالا لازم دارید. 5780382873487939194\n\n'
-    'اگر مقدار سکه و HP شما کافی نباشه و وسط میدان کم بیاورید، توی مبارزه به طرز فجیعی شکست میخورید. 5780609587631627157\n\n'
-    'پس توی تسک‌ها و با دعوت دوستانت به بازی، مقدار سکه و XP خودت رو به سرعت افزایش بده تا بتوانی در نبرد دوام بیاوری. 6032699501909644905\n\n'
-    'و با طلای به دست اومده، سلاح خودت رو ارتقا بده و حیوان نبرد (پِت) بخر تا تایم حملاتت رو کمتر کنی و برای مبارزه های وحشتناک بعدی اماده باشی! 6021608144004716962'
+# ==========================================
+# 📝 متون گرافیکی ربات (کدگذاری شده و ۱۰۰٪ ایمن)
+# ==========================================
+MAIN_TEXT = '<tg-emoji emoji-id="5282974228377789040">✨</tg-emoji> <b>منوی اصلی بازی تاتاروس</b>\n\n<tg-emoji emoji-id="5019617635629794161">✨</tg-emoji> بخش مورد نظر خود را انتخاب کنید:'
+GAME_MENU_TEXT = '<tg-emoji emoji-id="5282974228377789040">✨</tg-emoji> <b>منوی داستانی تاتاروس</b>\n\n<tg-emoji emoji-id="5019617635629794161">✨</tg-emoji> بخش مورد نظر خود را انتخاب کنید:'
+CHAR_SELECTION_TEXT = 'کاراکتر مورد نظر خودرا انتخاب کنید <tg-emoji emoji-id="5019617635629794161">✨</tg-emoji>'
+
+STORY_TEXT = (
+    'سلام <tg-emoji emoji-id="5296480809602023717">✨</tg-emoji>\n'
+    'به بازی تاتاروس خوش آمدید <tg-emoji emoji-id="5296349143084595007">✨</tg-emoji>\n\n'
+    'با فشار دادن/کلیک کردن روی دکمه شروع وارد دنیای فراموش شده میشید.<tg-emoji emoji-id="5303073678890662588">✨</tg-emoji>\n\n'
+    'دنیای فراموش شده جای افرادیه که در دنیای خودشون مرتکب اشتباهات زیادی شدن و تبعید شدن به دنیای فراموش شده.<tg-emoji emoji-id="5296785692150497491">✨</tg-emoji>\n\n'
+    'برای اینکه بتونید از دنیای فراموش شده فرار کنید مجموعه ای از ماموریت ها و دشمن های مختلفی رو باید پشت سر بزارید.<tg-emoji emoji-id="5453991094435997597">✨</tg-emoji>\n\n'
+    'باید در طول انجام ماموریت و مبارزه حواستون باشه که نیازمند هستید به منابع مختلف،\n'
+    'مثل سکه، الماس و ...<tg-emoji emoji-id="5213094908608392768">✨</tg-emoji>\n\n'
+    '<tg-emoji emoji-id="5395695537687123235">✨</tg-emoji> در طول مبارزات به شما مقدار قابل توجهی منابع تعلق میگیره ولی همیشه به این معنا نیست که قراره کافی باشن پس بهتره به بخش ماموریت ها هم سر بزنید<tg-emoji emoji-id="5395695537687123235">✨</tg-emoji>\n\n'
+    'اولین دشمن شما دراخور هستش برای کشتن اون نیاز به\n\n'
+    ' 45،000 سکه دارید <tg-emoji emoji-id="5282996373229167849">✨</tg-emoji>\n\n'
+    'و 1750 XP خون لازم دارید🩸\n\n'
+    'دراخور دشمن ساده ای نیست پس حواستو جمع کن تو دامش نیوفتی<tg-emoji emoji-id="5440660757194744323">✨</tg-emoji>'
 )
+
+BATTLE_INTRO_TEXT = (
+    '<tg-emoji emoji-id="5395695537687123235">✨</tg-emoji> <b>توجه</b> <tg-emoji emoji-id="5395695537687123235">✨</tg-emoji>                                  <tg-emoji emoji-id="5395695537687123235">✨</tg-emoji> <b>توجه</b> <tg-emoji emoji-id="5395695537687123235">✨</tg-emoji>\n\n'
+    'مبارز، تو در آستانه ورود به اولین دروازه نبرد هستی!\n\n'
+    'حریف اولت <b>دراخور</b> هستش <tg-emoji emoji-id="6021493696011180326">✨</tg-emoji>\n'
+    'هیولای بی‌رحمی که از تاریک‌ترین نقاط دنیای وِراث به تاتاروس تبعید شده. <tg-emoji emoji-id="6021562582991640411">✨</tg-emoji>\n\n'
+    'بر اساس قوانین وراث، دراخور <b>۱۵,۰۰۰ HP</b> جان دارد. برای شکست دادن اون با سلاح فعلی‌ات (چاقو)، نیاز به حداقل <b>۱۰۰ حمله دقیق و ۵۰۰ دقیقه مبارزه خالص</b> زمان هستش! <tg-emoji emoji-id="5917787905308234080">✨</tg-emoji>\n\n'
+    'در این نبرد پینگ‌پونگی، به ازای هر ضربه‌ای که به دراخور میزنی، او هم به تو آسیب می‌رساند! پس برای زنده ماندن به <b>سکه (برای خرید مداوم HP)</b> و برای پیشرفت به <b>XP</b> بالا لازم دارید. <tg-emoji emoji-id="5780382873487939194">✨</tg-emoji>\n\n'
+    'اگر مقدار سکه و HP شما کافی نباشه و وسط میدان کم بیاورید، توی مبارزه به طرز فجیعی شکست میخورید. <tg-emoji emoji-id="5780609587631627157">✨</tg-emoji>\n\n'
+    'پس توی تسک‌ها و با دعوت دوستانت به بازی، مقدار سکه و XP خودت رو به سرعت افزایش بده تا بتوانی در نبرد دوام بیاوری. <tg-emoji emoji-id="6032699501909644905">✨</tg-emoji>\n\n'
+    'و با طلای به دست اومده، سلاح خودت رو ارتقا بده و حیوان نبرد (پِت) بخر تا تایم حملاتت رو کمتر کنی و برای مبارزه های وحشتناک بعدی اماده باشی! <tg-emoji emoji-id="6021608144004716962">✨</tg-emoji>'
+)
+
+UPGRADE_TEXT = (
+    'به بخش ارتقا سلاح ها خوش امدید <tg-emoji emoji-id="6021530065794244533">✨</tg-emoji>\n\n'
+    'سلاح شما : چاقو (دیفالت بازی) هستش <tg-emoji emoji-id="5830442181906667908">✨</tg-emoji>\n\n'
+    'برای ارتقا روی دکمه چاقو کلیک کنید <tg-emoji emoji-id="5019617635629794161">✨</tg-emoji>\n\n'
+    'و برای خرید سلاح جدید روی سلاح مورد نظر کلیک نمایید <tg-emoji emoji-id="5019759554234156094">✨</tg-emoji>'
+)
+
+WEAPONS = {"چاقو": "knife", "شمشیر": "sword", "کُلت": "colt", "کلاش": "ak47"}
+
+def get_daily_reward_text():
+    coins = random.randint(10, 3000)
+    xp = random.randint(1, 50)
+    return (
+        '<tg-emoji emoji-id="5785281906459283269">✨</tg-emoji> هدیه روزانه\n\n'
+        '<tg-emoji emoji-id="6034853518202903906">✨</tg-emoji> هدیه روزانه آماده است!\n\n'
+        f'<tg-emoji emoji-id="6032699501909644905">✨</tg-emoji> {coins:,} سکه!\n\n'
+        f'<tg-emoji emoji-id="6035017564478773073">✨</tg-emoji> {xp} XP\n\n'
+        '<tg-emoji emoji-id="5019759554234156094">✨</tg-emoji> برای گرفتنش دکمه دریافت جوایز رو بزنید! <tg-emoji emoji-id="5019759554234156094">✨</tg-emoji>'
+    )
 
 # ⚔️ تابع تولید متن زنده و فوق گرافیکی میدان نبرد
 async def get_battle_arena_text(user_id: int):
@@ -108,7 +152,6 @@ async def get_battle_arena_text(user_id: int):
     coins = int(await get_setting(f"user_{user_id}_coins", 12500))
     gold = int(await get_setting(f"user_{user_id}_gold", 1))
 
-    # آیدی خطوط اختصاصی شما
     EMOJI_RED_LINE = "5868376419691663420"     # خط خون پر
     EMOJI_BLACK_LINE = "5870807534389957123"   # خط خالی (مشکی)
     EMOJI_BLUE_LINE = "5868656266875769200"    # خط شیلد پر
@@ -118,7 +161,6 @@ async def get_battle_arena_text(user_id: int):
     hp_bar = get_progress_bar(player_hp, player_max, 10, EMOJI_RED_LINE, EMOJI_BLACK_LINE)
     shield_bar = get_progress_bar(player_shield, shield_max, 10, EMOJI_BLUE_LINE, EMOJI_BLACK_LINE)
 
-    # لیست انیمه‌های خشمگین شما برای گزارش نبرد
     ANIME_EMOJIS = [
         "6037413112552889117", "6039679437945968043", "6039706547779541220", 
         "5958808923203967006", "5958322028531423656", "5958487981772773271", 
@@ -132,41 +174,22 @@ async def get_battle_arena_text(user_id: int):
     ]
     random_anime = random.choice(ANIME_EMOJIS)
 
-    # تزریق دستی و ایمن ایموجی‌ها برای جلوگیری از کرش HTML تلگرام
     text = (
         f"{e('6021608144004716962')} <b>میدان نبرد: تارتاروس (مرحله ۱)</b> {e('6021608144004716962')}\n"
         f"💮💮💮💮💮💮💮💮💮💮💮💮\n\n"
-        
         f"{e('6021493696011180326')} <b>دشمن: دراخور</b> (باس اول)\n"
         f"{e('5780382873487939194')} جان:\n{boss_bar} <code>{boss_hp:,} / {boss_max:,}</code>\n"
         f"{e('5453991094435997597')} قدرت حمله: <code>100 - 300 دمیج</code>\n\n"
-        
         f"{e('5987865893084861885')} <b>وضعیت شما:</b>\n"
         f"{e('5868278765020255710')} خون:\n{hp_bar} <code>{player_hp} / {player_max}</code>\n"
         f"{e('6028551194861899805')} شیلد:\n{shield_bar} <code>{player_shield} / {shield_max}</code>\n\n"
-        
         f"{e('5453991094435997597')} سلاح: <code>چاقو (لول ۱)</code> | {e('5453991094435997597')} دمیج: <code>150</code>\n"
         f"{e('6032699501909644905')} سکه: <code>{coins:,}</code> | {e('5213094908608392768')} طلا: <code>{gold}</code>\n\n"
-        
         f"💮💮💮💮💮💮💮💮💮💮💮💮\n\n"
         f"{e('5282843764451195532')} <b>گزارش نبرد:</b>\n"
         f"{e(random_anime)} <i>دراخور با چشمانی خونین به تو خیره شده است... منتظر حرکت توست مبارز!</i> "
     )
     return text
-
-UPGRADE_TEXT = parse_emojis("به بخش ارتقا سلاح ها خوش امدید 6021530065794244533\n\nسلاح شما : چاقو (دیفالت بازی) هستش 5830442181906667908\n\nبرای ارتقا روی دکمه چاقو کلیک کنید 5019617635629794161\n\nو برای خرید سلاح جدید روی سلاح مورد نظر کلیک نمایید 5019759554234156094")
-WEAPONS = {"چاقو": "knife", "شمشیر": "sword", "کُلت": "colt", "کلاش": "ak47"}
-
-def get_daily_reward_text():
-    coins = random.randint(10, 3000)
-    xp = random.randint(1, 50)
-    return parse_emojis(
-        '5785281906459283269 هدیه روزانه\n\n'
-        '6034853518202903906 هدیه روزانه آماده است!\n\n'
-        f'6032699501909644905 {coins:,} سکه!\n\n'
-        f'6035017564478773073 {xp} XP\n\n'
-        '5019759554234156094 برای گرفتنش دکمه دریافت جوایز رو بزنید! 5019759554234156094'
-    )
 
 # ==========================================
 # 📡 ارتباط خام با تلگرام
@@ -375,7 +398,7 @@ async def reject_admin(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(AdminSetup.waiting_for_char_names)
 async def receive_char_name(message: types.Message, state: FSMContext):
     raw_text = message.text
-    match = re.search(r'\b(\d{18,22})\b', raw_text)
+    match = re.search(r'\b(\d{15,22})\b', raw_text)
     if match:
         emoji_id = match.group(1)
         name = raw_text.replace(emoji_id, '').strip()
@@ -538,7 +561,7 @@ async def admin_pet_approval(callback: types.CallbackQuery):
     if action == "approve":
         await set_setting(f"user_{user_id}_pet_{char_id}", "1") 
         await callback.message.edit_caption(caption=callback.message.caption + "\n\n✅ تایید شد.")
-        msg = 'پت شما فعال شد مبارک باشه رفیق 6041909294771739947'
+        msg = 'پت شما فعال شد مبارک باشه رفیق <tg-emoji emoji-id="6041909294771739947">✨</tg-emoji>'
         await send_raw_api("sendMessage", {"chat_id": user_id, "text": parse_emojis(msg), "parse_mode": "HTML"})
     else:
         await callback.message.edit_caption(caption=callback.message.caption + "\n\n❌ رد شد.")
@@ -547,84 +570,83 @@ async def admin_pet_approval(callback: types.CallbackQuery):
     await callback.answer()
 
 # ==========================================
-# 🧩 ساختار ایمن کیبوردها (جلوگیری قطعی از باگ دکمه)
+# 🧩 ساختار کیبوردها (بازگشت ایموجی‌های پرمیوم)
 # ==========================================
-# در این نسخه از ایموجی‌های استاندارد در دکمه‌ها استفاده شده تا خطای 400 تلگرام رفع شود.
-
 async def get_raw_main_keyboard(user_id: int):
     return [
-        [{"text": "👤 حساب کاربری", "callback_data": f"btn_profile_{user_id}"},
-         {"text": "🏪 بازار", "callback_data": f"btn_market_{user_id}"}],
-        [{"text": "📖 داستانی", "callback_data": f"btn_story_{user_id}"},
-         {"text": "🌌 مولتی", "callback_data": f"btn_multi_{user_id}"}],
-        [{"text": "🎭 اسکین", "callback_data": f"btn_skin_{user_id}"},
-         {"text": "⬆️ ارتقا", "callback_data": f"btn_upgrade_{user_id}"}],
-        [{"text": "📜 ماموریت ها", "callback_data": f"btn_missions_{user_id}"}],
-        [{"text": "⚔️ جنگ ها", "callback_data": f"btn_wars_{user_id}"},
-         {"text": "🏴‍☠️ بازار سیاه", "callback_data": f"btn_blackmarket_{user_id}"}],
-        [{"text": "🛒 فروشگاه", "callback_data": f"btn_shop_{user_id}"},
-         {"text": "🏆 لیدربرد", "callback_data": f"btn_leaderboard_{user_id}"}],
-        [{"text": "🛡 کلن", "callback_data": f"btn_clan_{user_id}"},
-         {"text": "📰 اخبار", "callback_data": f"btn_news_{user_id}"}],
-        [{"text": "📚 راهنما", "callback_data": f"btn_help_{user_id}"},
-         {"text": "❌ بستن منو", "callback_data": f"btn_close_{user_id}"}]
+        [await btn("حساب کاربری", f"btn_profile_{user_id}", "حساب کاربری", "5987865893084861885"),
+         await btn("بازار", f"btn_market_{user_id}", "بازار", "5258024802010026053")],
+        [await btn("داستانی", f"btn_story_{user_id}", "داستانی", "5364052602357044385"),
+         await btn("مولتی(چند جهانی)", f"btn_multi_{user_id}", "مولتی(چند جهانی)", "5361741454685256344")],
+        [await btn("اسکین", f"btn_skin_{user_id}", "اسکین", "5987973065403797894"),
+         await btn("ارتقا", f"btn_upgrade_{user_id}", "ارتقا", "5375338737028841420")],
+        [await btn("ماموریت ها", f"btn_missions_{user_id}", "ماموریت ها", "5282996373229167849")],
+        [await btn("جنگ ها", f"btn_wars_{user_id}", "جنگ ها", "5453991094435997597"),
+         await btn("بازار سیاه", f"btn_blackmarket_{user_id}", "بازار سیاه", "5296387887984580731")],
+        [await btn("فروشگاه", f"btn_shop_{user_id}", "فروشگاه", "5406683434124859552"),
+         await btn("لیدربرد", f"btn_leaderboard_{user_id}", "لیدربرد", "5415655814079723871")],
+        [await btn("کلن", f"btn_clan_{user_id}", "کلن", "5978687277390371946"),
+         await btn("اخبار", f"btn_news_{user_id}", "اخبار", "5443038326535759644")],
+        [await btn("راهنما", f"btn_help_{user_id}", "راهنما", "5282843764451195532"),
+         await btn("بستن منو", f"btn_close_{user_id}", "بستن منو", "5210952531676504517")]
     ]
 
 async def get_raw_story_keyboard(user_id: int):
     return [
-        [{"text": "▶️ ادامه بازی", "callback_data": f"btn_continue_{user_id}"},
-         {"text": "🔙 بازگشت", "callback_data": f"btn_backmain_{user_id}"}]
+        [await btn("ادامه بازی", f"btn_continue_{user_id}", "ادامه بازی", "5206607081334906820"),
+         await btn("بازگشت", f"btn_backmain_{user_id}", "بازگشت", "5210952531676504517")]
     ]
 
 async def get_raw_gamemenu_keyboard(user_id: int):
     return [
-        [{"text": "🚀 شروع", "callback_data": f"btn_gamestart_{user_id}"},
-         {"text": "▶️ ادامه", "callback_data": f"btn_gamecontinue_{user_id}"}],
-        [{"text": "⬆️ ارتقا", "callback_data": f"btn_gameupg_{user_id}"},
-         {"text": "📜 تسک", "callback_data": f"btn_gametask_{user_id}"}],
-        [{"text": "🎁 جوایز روزانه", "callback_data": f"btn_gamedaily_{user_id}"},
-         {"text": "🐾 حیوانات نبرد", "callback_data": f"btn_gamepets_{user_id}"}],
-        [{"text": "📚 راهنما", "callback_data": f"btn_guide_1_{user_id}"},
-         {"text": "❌ بستن", "callback_data": f"btn_close_{user_id}"}]
+        [await btn("شروع", f"btn_gamestart_{user_id}", "شروع", "6021608144004716962"),
+         await btn("ادامه", f"btn_gamecontinue_{user_id}", "ادامه", "6037142916160297263")],
+        [await btn("ارتقا", f"btn_gameupg_{user_id}", "ارتقا", "6043954888910576445"),
+         await btn("تسک", f"btn_gametask_{user_id}", "تسک", "5780382873487939194")],
+        [await btn("جوایز روزانه", f"btn_gamedaily_{user_id}", "جوایز روزانه", "6034834521562553211"),
+         await btn("حیوانات نبرد", f"btn_gamepets_{user_id}", "حیوانات نبرد", "6042051380879822629")],
+        [await btn("راهنما", f"btn_guide_1_{user_id}", "راهنمای داستانی", "6039577350868310365"),
+         await btn("بستن", f"btn_close_{user_id}", "بستن", "6032606743500951856")]
     ]
 
 async def get_raw_battle_intro_keyboard(user_id: int):
     return [
-        [{"text": "🔥 بریم تو دل مبارزه", "callback_data": f"btn_battle_{user_id}"}],
-        [{"text": "🔙 بازگشت", "callback_data": f"btn_backgamemenu_{user_id}"}]
+        [await btn("بریم تو دل مبارزه", f"btn_battle_{user_id}", "بریم تو دل مبارزه", "6034966544562265361")],
+        [await btn("بازگشت", f"btn_backgamemenu_{user_id}", "بازگشت", "6041794945562451034")]
     ]
 
 async def get_raw_battle_arena_keyboard(user_id: int):
     return [
-        [{"text": "⚔️ دمیج دادن", "callback_data": f"btn_action_damage_{user_id}"},
-         {"text": "🐾 دمیج حیوان", "callback_data": f"btn_action_petdmg_{user_id}"}],
-        [{"text": "⚡️ قدرت", "callback_data": f"btn_action_power_{user_id}"},
-         {"text": "🛡 خرید شیلد", "callback_data": f"btn_action_shield_{user_id}"}],
-        [{"text": "❤️ خرید HP", "callback_data": f"btn_action_buyhp_{user_id}"}],
-        [{"text": "🔙 بازگشت به منو داستانی", "callback_data": f"btn_backgamemenu_{user_id}"}]
+        [await btn("دمیج دادن", f"btn_action_damage_{user_id}", "دمیج دادن", "5958322028531423656"),
+         await btn("دمیج حیوان", f"btn_action_petdmg_{user_id}", "دمیج حیوان", "6042051380879822629")],
+        [await btn("قدرت", f"btn_action_power_{user_id}", "قدرت", "6037163978679916501"),
+         await btn("خرید شیلد", f"btn_action_shield_{user_id}", "خرید شیلد", "6028551194861899805")],
+        [await btn("خرید HP", f"btn_action_buyhp_{user_id}", "خرید HP", "6032699501909644905")],
+        [await btn("بازگشت به منو داستانی", f"btn_backgamemenu_{user_id}", "بازگشت", "6041794945562451034")]
     ]
 
 async def get_raw_upgrade_keyboard(user_id: int):
     return [
-        [{"text": "🗡 چاقو", "callback_data": f"btn_showweapon_knife_{user_id}"}],
-        [{"text": "⚔️ شمشیر", "callback_data": f"btn_showweapon_sword_{user_id}"}],
-        [{"text": "🔫 کُلت", "callback_data": f"btn_showweapon_colt_{user_id}"}],
-        [{"text": "💥 کلاش", "callback_data": f"btn_showweapon_ak47_{user_id}"}],
-        [{"text": "🔄 تعویض سلاح", "callback_data": f"btn_changeweapon_{user_id}"}],
-        [{"text": "🔙 بازگشت", "callback_data": f"btn_backgamemenu_{user_id}"}]
+        [await btn("چاقو", f"btn_showweapon_knife_{user_id}", "چاقو", "5830442181906667908")],
+        [await btn("شمشیر", f"btn_showweapon_sword_{user_id}", "شمشیر", "5785098292312415025")],
+        [await btn("کُلت", f"btn_showweapon_colt_{user_id}", "کُلت", "6034845503793928402")],
+        [await btn("کلاش", f"btn_showweapon_ak47_{user_id}", "کلاش", "5181902025721381896")],
+        [await btn("تعویض سلاح", f"btn_changeweapon_{user_id}", "تعویض سلاح", "5361741454685256344")],
+        [await btn("بازگشت", f"btn_backgamemenu_{user_id}", "بازگشت", "5785177332595561481")]
     ]
 
 async def get_raw_character_keyboard(user_id: int):
     chars = []
     for i in range(1, 5):
         name = await get_setting(f"char{i}_name", f"کاراکتر {i}")
-        # نام‌های کاراکتر ممکن است حاوی کد ایموجی باشند، پس برای متن دکمه آن را پاک می‌کنیم
+        # نام تمیز شده برای قرار دادن در دکمه
         clean_name = re.sub(r'\d{15,22}', '', name).strip()
-        chars.append({"text": f"👤 {clean_name}", "callback_data": f"btn_selectchar_{i}_{user_id}"})
+        b = await btn(clean_name, f"btn_selectchar_{i}_{user_id}", f"char{i}_emoji", "")
+        chars.append(b)
     return [
         [chars[0], chars[1]],
         [chars[2], chars[3]],
-        [{"text": "🔙 بازگشت", "callback_data": f"btn_story_{user_id}"}]
+        [await btn("بازگشت", f"btn_story_{user_id}", "بازگشت", "5210952531676504517")]
     ]
 
 # ==========================================
@@ -743,7 +765,7 @@ async def handle_all_buttons(callback: types.CallbackQuery):
         weapon_type = parts[2]
         weapon_fa = [k for k, v in WEAPONS.items() if v == weapon_type][0]
         weapon_text = parse_emojis(f"بخش اختصاصی سلاح {weapon_fa} (در حال توسعه)")
-        kb = [[{"text": "🔙 بازگشت", "callback_data": f"btn_backupgrade_{owner_id}"}]]
+        kb = [[await btn("بازگشت", f"btn_backupgrade_{owner_id}", "بازگشت", "5785177332595561481")]]
         await transition_menu(callback, f"photo_weapon_{weapon_type}", weapon_text, kb)
         return await callback.answer()
         
@@ -758,8 +780,8 @@ async def handle_all_buttons(callback: types.CallbackQuery):
     elif action == "gamedaily":
         text = get_daily_reward_text()
         kb = [
-            [{"text": "🎁 دریافت جوایز روزانه", "callback_data": f"btn_claimdaily_{owner_id}"}],
-            [{"text": "🔙 بازگشت", "callback_data": f"btn_backgamemenu_{owner_id}"}]
+            [await btn("دریافت جوایز روزانه", f"btn_claimdaily_{owner_id}", "دریافت جوایز روزانه", "6028565819225542441")],
+            [await btn("بازگشت", f"btn_backgamemenu_{owner_id}", "بازگشت", "6032606743500951856")]
         ]
         await transition_menu(callback, "photo_gamedaily", text, kb)
         return await callback.answer()
@@ -775,18 +797,19 @@ async def handle_all_buttons(callback: types.CallbackQuery):
         pet_text_raw = await get_setting("pet_text", "متن حیوان هنوز تنظیم نشده است.")
         pet_text = parse_emojis(pet_text_raw)
         
-        if is_purchased: pet_text += "\n\nخریداری شده 6028565819225542441"
-        else: pet_text += "\n\nخریداری نشده 6032606743500951856"
+        if is_purchased: pet_text += '\n\nخریداری شده <tg-emoji emoji-id="6028565819225542441">✨</tg-emoji>'
+        else: pet_text += '\n\nخریداری نشده <tg-emoji emoji-id="6032606743500951856">✨</tg-emoji>'
 
         kb = []
         if is_purchased: 
-            kb.append([{"text": "⚔️ فعال کردن برای نبرد", "callback_data": f"btn_activatepet_{char_id}_{owner_id}"}])
+            kb.append([await btn("فعال کردن برای نبرد", f"btn_activatepet_{char_id}_{owner_id}", "فعال کردن برای نبرد", "5780857858216173092")])
         else: 
-            kb.append([{"text": "🛒 خریدن حیوان", "url": f"https://t.me/{BOT_USERNAME}?start=buypet_{char_id}"}])
+            emoji_id = await get_emoji("خریدن حیوان", "6028565819225542441")
+            kb.append([{"text": "خریدن حیوان", "url": f"https://t.me/{BOT_USERNAME}?start=buypet_{char_id}", "icon_custom_emoji_id": str(emoji_id)}])
             
-        kb.append([{"text": "🔙 بازگشت", "callback_data": f"btn_backgamemenu_{owner_id}"}])
+        kb.append([await btn("بازگشت", f"btn_backgamemenu_{owner_id}", "بازگشت", "6032606743500951856")])
         
-        await transition_menu(callback, f"photo_pet_{char_id}", parse_emojis(pet_text), kb)
+        await transition_menu(callback, f"photo_pet_{char_id}", pet_text, kb)
         return await callback.answer()
 
     elif action == "activatepet":
@@ -799,12 +822,12 @@ async def handle_all_buttons(callback: types.CallbackQuery):
         text_parsed = parse_emojis(text_raw)
         
         nav_btns = []
-        if page > 1: nav_btns.append({"text": "⬅️ قبلی", "callback_data": f"btn_guide_{page-1}_{owner_id}"})
-        if page < total_pages: nav_btns.append({"text": "بعدی ➡️", "callback_data": f"btn_guide_{page+1}_{owner_id}"})
+        if page > 1: nav_btns.append(await btn("قبلی", f"btn_guide_{page-1}_{owner_id}", "قبلی", "5210952531676504517"))
+        if page < total_pages: nav_btns.append(await btn("بعدی", f"btn_guide_{page+1}_{owner_id}", "بعدی", "5210952531676504517"))
         
         kb = []
         if nav_btns: kb.append(nav_btns)
-        kb.append([{"text": "🔙 بازگشت", "callback_data": f"btn_backgamemenu_{owner_id}"}])
+        kb.append([await btn("بازگشت", f"btn_backgamemenu_{owner_id}", "بازگشت", "6032606743500951856")])
         
         await transition_menu(callback, f"photo_guide_{page}", text_parsed, kb)
         return await callback.answer()
@@ -825,7 +848,7 @@ async def main():
     await init_db()
     me = await bot.get_me()
     BOT_USERNAME = me.username
-    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) با میدان نبرد ۱۰۰٪ بدون باگ راه‌اندازی شد!")
+    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) با دکمه‌های پرمیوم و بدون باگ روشن شد!")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
