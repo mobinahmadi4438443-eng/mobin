@@ -61,11 +61,9 @@ async def get_emoji(btn_name: str, default_id: str):
 def parse_emojis(text: str) -> str:
     return re.sub(r'(?<!["\'\d])(\d{15,22})(?!["\'\d])', r'<tg-emoji emoji-id="\1">✨</tg-emoji>', text)
 
-# تولیدکننده امن ایموجی برای متون لایو نبرد
 def e(eid: str, fallback="✨") -> str:
     return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
 
-# 🔴 رفع قطعی ارور ENTITY_TEXT_INVALID (استفاده از ✨ به جای کاراکتر هندسی)
 def get_progress_bar(current: int, total: int, length: int, fill_id: str, empty_id: str) -> str:
     if total <= 0: total = 1
     filled = int((current / total) * length)
@@ -78,7 +76,6 @@ def get_progress_bar(current: int, total: int, length: int, fill_id: str, empty_
     
     return (fill_tag * filled) + (empty_tag * empty)
 
-# دکمه‌ساز شیشه‌ای پرمیوم
 async def btn(text: str, cb_data: str, emoji_name: str, default_emoji: str):
     emoji_id = await get_emoji(emoji_name, default_emoji)
     button = {"text": text, "callback_data": cb_data}
@@ -119,7 +116,7 @@ BATTLE_INTRO_TEXT = parse_emojis(
     'و با طلای به دست اومده، سلاح خودت رو ارتقا بده و حیوان نبرد (پِت) بخر تا تایم حملاتت رو کمتر کنی و برای مبارزه های وحشتناک بعدی اماده باشی! 6021608144004716962'
 )
 
-# ⚔️ تابع تولید میدان نبرد گاد و خفن (بدون دستکاری ایموجی‌های پرمیوم شما)
+# ⚔️ تابع تولید میدان نبرد گاد و خفن 
 async def get_battle_arena_text(user_id: int):
     boss_hp = int(await get_setting(f"user_{user_id}_boss_hp", 15000))
     boss_max = 15000
@@ -132,7 +129,6 @@ async def get_battle_arena_text(user_id: int):
     coins = int(await get_setting(f"user_{user_id}_coins", 12500))
     gold = int(await get_setting(f"user_{user_id}_gold", 1))
 
-    # آیدی‌های اختصاصی شما که دست‌نخورده باقی ماندند
     EMOJI_RED_LINE = "5868376419691663420"
     EMOJI_BLACK_LINE = "5870807534389957123"
     EMOJI_BLUE_LINE = "5868656266875769200"
@@ -168,7 +164,6 @@ async def get_battle_arena_text(user_id: int):
         f"{e('6039679437945968043')} XP: {xp_bar} <code>[{player_xp} / {xp_max}]</code>\n\n"
         f"{e('5958322028531423656')} ﺳﻼﺡ: <code>ﭼﺎﻗﻮ (L1)</code> | {e('5958808923203967006')} ﺁﺳﯿﺐ: <code>150</code>\n"
         f"{e('6032699501909644905')} ﺳﮑﻪ: <code>{coins:,}</code> | {e('5870839969982976188')} ﻃﻼ: <code>{gold}</code>\n\n"
-        f"{e('6028251384669805758')} <b>ﮔﺰﺍﺭﺵ ﺯﻧﺪﻩ ﻧﺒﺮﺩ :</b>\n"
         f"{e(random_anime)} <i>ﺩﺭﺍﺧﻮﺭ ﺑﺎ ﭼﺸﻤﺎﻧﯽ ﺧﻮﻧﯿﻦ ﺑﻪ ﺗﻮ ﺧﯿﺮﻩ ﺷﺪﻩ ﺍﺳﺖ...</i>"
     )
     return text
@@ -565,7 +560,7 @@ async def admin_pet_approval(callback: types.CallbackQuery):
     await callback.answer()
 
 # ==========================================
-# 🧩 ساختار کیبوردها (پرمیوم)
+# 🧩 ساختار کیبوردها
 # ==========================================
 async def get_raw_main_keyboard(user_id: int):
     return [
@@ -610,11 +605,12 @@ async def get_raw_battle_intro_keyboard(user_id: int):
         [await btn("بازگشت", f"btn_backgamemenu_{user_id}", "بازگشت", "6041794945562451034")]
     ]
 
+# 🔴 آپدیت اسامی دکمه‌های شیشه‌ای میدان نبرد
 async def get_raw_battle_arena_keyboard(user_id: int):
     return [
-        [await btn("دمیج دادن", f"btn_action_damage_{user_id}", "دمیج دادن", "5958322028531423656"),
-         await btn("دمیج حیوان", f"btn_action_petdmg_{user_id}", "دمیج حیوان", "6042051380879822629")],
-        [await btn("قدرت", f"btn_action_power_{user_id}", "قدرت", "6037163978679916501"),
+        [await btn("حمله", f"btn_action_damage_{user_id}", "دمیج دادن", "5958322028531423656"),
+         await btn("حمله حیوان", f"btn_action_petdmg_{user_id}", "دمیج حیوان", "6042051380879822629")],
+        [await btn("قدرت نمایی", f"btn_action_power_{user_id}", "قدرت", "6037163978679916501"),
          await btn("خرید شیلد", f"btn_action_shield_{user_id}", "خرید شیلد", "6028551194861899805")],
         [await btn("خرید HP", f"btn_action_buyhp_{user_id}", "خرید HP", "6032699501909644905")],
         [await btn("بازگشت به منو داستانی", f"btn_backgamemenu_{user_id}", "بازگشت", "6041794945562451034")]
@@ -667,7 +663,6 @@ async def trigger_tatarus_menu(message: types.Message):
             payload["text"] = MAIN_TEXT
             await send_raw_api("sendMessage", payload)
 
-# 🔴 فعال‌سازی مجدد و ایمن کلمه "میدان نبرد" در گروه
 @dp.message(F.text.contains("میدان نبرد"))
 async def trigger_battle_arena_cmd(message: types.Message):
     if message.chat.type in ["group", "supergroup"]:
@@ -680,6 +675,7 @@ async def trigger_battle_arena_cmd(message: types.Message):
                 "chat_id": message.chat.id, 
                 "text": text, 
                 "parse_mode": "HTML",
+                "reply_parameters": {"message_id": message.message_id},
                 "reply_markup": {"inline_keyboard": kb}
             }
             result = await send_raw_api("sendMessage", payload)
@@ -767,11 +763,13 @@ async def handle_all_buttons(callback: types.CallbackQuery):
         await transition_menu(callback, "photo_gamestart", BATTLE_INTRO_TEXT, kb)
         return await callback.answer()
 
-    # 🔴🔥 حل نهایی و تست شده باگ ورود به میدان مبارزه
+    # 🔴🔥 ویرایش و حفظ قطعی ریپلای روی کاربر (آپدیت جدید)
     elif action == "battle":
         try:
             text = await get_battle_arena_text(owner_id)
             kb = await get_raw_battle_arena_keyboard(owner_id)
+            
+            has_media = True if (callback.message.photo or callback.message.animation or callback.message.video or callback.message.document) else False
             
             payload = {
                 "chat_id": callback.message.chat.id,
@@ -780,13 +778,21 @@ async def handle_all_buttons(callback: types.CallbackQuery):
                 "reply_markup": {"inline_keyboard": kb}
             }
 
-            await callback.message.delete()
-            result = await send_raw_api("sendMessage", payload)
-            
+            # اگر پیام قبلی عکس‌دار بود، آن را پاک می‌کنیم ولی پیام جدید را مستقیماً روی پیام اصلی کاربر ریپلای می‌زنیم!
+            if has_media:
+                await callback.message.delete()
+                if callback.message.reply_to_message:
+                    payload["reply_parameters"] = {"message_id": callback.message.reply_to_message.message_id}
+                result = await send_raw_api("sendMessage", payload)
+            # اگر پیام قبلی عکس‌دار نبود (فقط متن بود)، خیلی راحت همان متن را ویرایش می‌کنیم تا ارتباط ریپلای اصلاً قطع نشود!
+            else:
+                payload["message_id"] = callback.message.message_id
+                result = await send_raw_api("editMessageText", payload)
+                
             if not result.get("ok"):
                 await send_raw_api("sendMessage", {
                     "chat_id": callback.message.chat.id,
-                    "text": f"⚠️ ارور تلگرام در لود میدان نبرد:\n`{result.get('description')}`\n(لطفاً به پشتیبانی اطلاع دهید)",
+                    "text": f"⚠️ ارور تلگرام:\n`{result.get('description')}`",
                     "parse_mode": "Markdown"
                 })
                 
@@ -891,7 +897,7 @@ async def main():
     await init_db()
     me = await bot.get_me()
     BOT_USERNAME = me.username
-    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) باگ HTML تلگرام فیکس شد!")
+    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) با حفظ ریپلای و چیدمان جدید روشن شد!")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
