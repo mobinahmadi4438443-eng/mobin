@@ -53,51 +53,7 @@ async def set_setting(key: str, value: str):
         await db.commit()
 
 # ==========================================
-# 🧩 دیتابیس عظیم ایموجی‌های پرمیوم شما
-# ==========================================
-# لیست شمشیرها و ضربات برای حمله
-ATTACK_EMOJIS = [
-    "5345906988301725409", "5343897957219477338", "5344032282321660839", "5343740353394551254", "5345939127541996538", 
-    "5345800077975792172", "5343945962068946147", "5345801830322445591", "5339298412317680982", "5339480720794496201",
-    "5339252847009634986", "5339142681098497146", "5339175846835953172", "5339384281598830250", "5337004109507634021",
-    "5339441125490992832", "5958375350550403093", "5958490962480077066", "5958761283426719331", "5958376072104907832",
-    "5958511380754601050", "5958372885239174716", "5958461262781225622", "5958816121569154412", "5958333805331748627",
-    "5958594101824721885", "5958546676795840177", "5958701364337972534", "5958267186094020392", "5958665720404383923",
-    "5958635874676643966", "5958609692556007137", "5958795840733583887", "5956169116044761371", "5958574052917384760",
-    "5958621525190908249", "5958505857426659267", "5958804155790268495", "5958353600836015944", "5958578863280756877",
-    "5958546861479434425", "5958487981772773271", "5958322028531423656", "5958643717286926603", "5958428071273961070",
-    "5958762662111221332", "5956101388705470045", "5958281097493092896", "5956394859525837952", "5958746371300267640",
-    "5956379642456708521", "5958473597927298471", "5958555236665660683", "5958581551930283817", "5958662262955711244",
-    "5958378245358360456", "5958808141519919086", "5958786662388471763", "5958606630244325380", "5958618136461711872",
-    "5958415641638607251", "5958624179480697023", "5958318313384711376", "5958816276187985125", "5958767927741126280"
-]
-
-# لیست انیمه‌های خشمگین و ترسناک (برای دراخور و آسیب دیدن)
-BOSS_EMOJIS = [
-    "6041846334846146779", "6041718654058374097", "6041988081651817010", "6042000747510373449", "6044381950393719705",
-    "6041691913591986795", "6041794945562451034", "6044031657156025745", "6042067207834312047", "6044392984164702858",
-    "6021493696011180326", "6021679199943665107", "6028251384669805758", "6021503011795245594", "6021683482026057273",
-    "6021524963373098074", "6021527201051056472", "6021608144004716962", "6021653215391521041", "6021776476657949960",
-    "6021628944531331852", "6021562582991640411", "6021324839371938222", "6021836374271860084", "6021339012764015617",
-    "5783004749158685627", "5780556707994278784", "5782701868064971518", "5782913730211748145", "5780658176596646924",
-    "5780609587631627157", "5780781407798305236", "5780585368311045618", "5780929133198450198", "5782843400122276474",
-    "6037413112552889117", "6039679437945968043", "6039706547779541220", "5958808923203967006", "5958322028531423656",
-    "5958487981772773271", "5780382873487939194", "5780765881491529111", "5829994341371747297", "6037163978679916501",
-    "6034869770359152915", "6035078071978040145", "6037584997144074766", "6035097914726947384", "6034966544562265361",
-    "6037095632865335166", "6037502439282712379", "6037533659399985698", "6037502185879641476", "6028251384669805758",
-    "5814562360668461990", "5904551078094970096", "6039356525124787397", "6044381950393719705"
-]
-
-# لیست ایموجی‌های خون، شیلد و پیروزی (هیل کردن و محافظت)
-HEAL_EMOJIS = [
-    "5868727352879485936", "5868656266875769200", "5902141940744330810", "6028551194861899805", "6032699501909644905",
-    "5902324558458789912", "5904341217402952011", "5902143499817458993", "6041761200004406848", "6041737710828264758",
-    "6044320575311060640", "5814620926842511271", "5832631378277050554", "5807769659436440096", "5918119176135774001",
-    "5857150470396581154", "5899781869100076644", "6037400103096948939", "6039877646391711784"
-]
-
-# ==========================================
-# 🧩 سیستم خواندن و قالب‌بندی ایموجی‌ها
+# 🧩 پردازشگر هوشمند ایموجی‌های پرمیوم
 # ==========================================
 async def get_emoji(btn_name: str, default_id: str):
     return await get_setting(f"emoji_{btn_name}", default_id)
@@ -115,7 +71,6 @@ def get_progress_bar(current: int, total: int, length: int, fill_id: str, empty_
     if filled > length: filled = length
     if filled < 0: filled = 0
     empty = length - filled
-    # استفاده از ایموجی ✨ مخفی به جای خط تیره تا تلگرام ارور ندهد
     return (f'<tg-emoji emoji-id="{fill_id}">✨</tg-emoji>' * filled) + (f'<tg-emoji emoji-id="{empty_id}">✨</tg-emoji>' * empty)
 
 async def btn(text: str, cb_data: str, emoji_name: str, default_emoji: str):
@@ -158,6 +113,9 @@ BATTLE_INTRO_TEXT = parse_emojis(
     'و با طلای به دست اومده، سلاح خودت رو ارتقا بده و حیوان نبرد (پِت) بخر تا تایم حملاتت رو کمتر کنی و برای مبارزه های وحشتناک بعدی اماده باشی! 6021608144004716962'
 )
 
+WEAPONS_DMG = {"knife": 150, "sword": 300, "colt": 600, "ak47": 1200}
+WEAPONS_NAMES = {"knife": "ﭼﺎﻗﻮ (L1)", "sword": "ﺷﻤﺸﯿﺮ (L2)", "colt": "ﮐﻠﺖ (L3)", "ak47": "ﮐﻼﺵ (L4)"}
+
 # ⚔️ تابع تولید میدان نبرد متحرک (گاد و خفن)
 async def get_battle_arena_text(user_id: int, log_msg: str = None):
     boss_hp = int(await get_setting(f"user_{user_id}_boss_hp", 15000))
@@ -170,6 +128,10 @@ async def get_battle_arena_text(user_id: int, log_msg: str = None):
     xp_max = 500
     coins = int(await get_setting(f"user_{user_id}_coins", 12500))
     gold = int(await get_setting(f"user_{user_id}_gold", 1))
+    user_weapon = await get_setting(f"user_{user_id}_weapon", "knife")
+    
+    current_weapon_name = WEAPONS_NAMES.get(user_weapon, "ﭼﺎﻗﻮ (L1)")
+    current_weapon_dmg = WEAPONS_DMG.get(user_weapon, 150)
 
     char_id = await get_setting(f"user_{user_id}_char", "1")
     char_name_raw = await get_setting(f"char{char_id}_name", "زولو")
@@ -192,7 +154,6 @@ async def get_battle_arena_text(user_id: int, log_msg: str = None):
         START_EMOJIS = ["6044381950393719705", "6037533659399985698", "6037163978679916501"]
         log_msg = f"{e(random.choice(START_EMOJIS))} <i>ﺩﺭﺍﺧﻮﺭ ﺑﺎ ﭼﺸﻤﺎﻧﯽ ﺧﻮﻧﯿﻦ ﺑﻪ ﺗﻮ ﺧﯿﺮﻩ ﺷﺪﻩ ﺍﺳﺖ...</i>"
 
-    # براکت‌های زاویه‌دار حذف و جایگزین با کروشه شدند تا ارور HTML نگیریم
     text = (
         f"{e('6021608144004716962')} <b>[ ﻣﯿﺪﺍﻥ ﻧﺒﺮﺩ : ﺗﺎﺗﺎﺭﻭﺱ ]</b> {e('6021608144004716962')}\n\n"
         f"{e('6044381950393719705')} <b>[ ﺩﺷﻤﻦ : ﺩﺭﺍﺧﻮﺭ ]</b>\n"
@@ -202,7 +163,7 @@ async def get_battle_arena_text(user_id: int, log_msg: str = None):
         f"{e('6034966544562265361')} HP: {hp_bar} <code>[{player_hp} / {player_max}]</code>\n"
         f"{e('6028551194861899805')} SHD: {shield_bar} <code>[{player_shield} / {shield_max}]</code>\n"
         f"{e('6039679437945968043')} XP: {xp_bar} <code>[{player_xp} / {xp_max}]</code>\n\n"
-        f"{e('5958322028531423656')} ﺳﻼﺡ: <code>ﭼﺎﻗﻮ (L1)</code> | {e('5958808923203967006')} ﺁﺳﯿﺐ: <code>150</code>\n"
+        f"{e('5958322028531423656')} ﺳﻼﺡ: <code>{current_weapon_name}</code> | {e('5958808923203967006')} ﺁﺳﯿﺐ: <code>{current_weapon_dmg}</code>\n"
         f"{e('6032699501909644905')} ﺳﮑﻪ: <code>{coins:,}</code> | {e('5870839969982976188')} ﻃﻼ: <code>{gold}</code>\n\n"
         f"{e('6028251384669805758')} <b>ﮔﺰﺍﺭﺵ ﺯﻧﺪﻩ ﻧﺒﺮﺩ :</b>\n"
         f"{log_msg}"
@@ -522,7 +483,7 @@ async def confirm_guide_photo(callback: types.CallbackQuery, state: FSMContext):
         await state.clear()
 
 # ==========================================
-# 💰 سیستم خرید حیوان نبرد (پی‌وی ربات)
+# 💰 سیستم خرید حیوان نبرد
 # ==========================================
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
@@ -743,7 +704,7 @@ async def transition_menu(callback: types.CallbackQuery, photo_key: str, text: s
             await send_raw_api("sendMessage", payload)
 
 # ==========================================
-# 🎛 هندلرهای دکمه‌های شیشه‌ای کاربری
+# 🎛 هندلرهای اصلی و چرخه روزگار (Battle Engine)
 # ==========================================
 @dp.callback_query(F.data.startswith("btn_"))
 async def handle_all_buttons(callback: types.CallbackQuery):
@@ -788,15 +749,8 @@ async def handle_all_buttons(callback: types.CallbackQuery):
         try:
             text = await get_battle_arena_text(owner_id)
             kb = await get_raw_battle_arena_keyboard(owner_id)
-            
             has_media = True if (callback.message.photo or callback.message.animation or callback.message.video or callback.message.document) else False
-            
-            payload = {
-                "chat_id": callback.message.chat.id,
-                "text": text,
-                "parse_mode": "HTML",
-                "reply_markup": {"inline_keyboard": kb}
-            }
+            payload = {"chat_id": callback.message.chat.id, "text": text, "parse_mode": "HTML", "reply_markup": {"inline_keyboard": kb}}
 
             if has_media:
                 await callback.message.delete()
@@ -808,11 +762,7 @@ async def handle_all_buttons(callback: types.CallbackQuery):
                 result = await send_raw_api("editMessageText", payload)
                 
             if not result.get("ok"):
-                await send_raw_api("sendMessage", {
-                    "chat_id": callback.message.chat.id,
-                    "text": f"⚠️ ارور تلگرام:\n`{result.get('description')}`",
-                    "parse_mode": "Markdown"
-                })
+                await send_raw_api("sendMessage", {"chat_id": callback.message.chat.id, "text": f"⚠️ ارور تلگرام:\n`{result.get('description')}`", "parse_mode": "Markdown"})
                 
             return await callback.answer("⚔️ وارد میدان شدی! حواست به جانت باشه...")
             
@@ -820,61 +770,80 @@ async def handle_all_buttons(callback: types.CallbackQuery):
             logging.error(f"Battle Load Error: {e}")
             return await callback.answer("⚠️ خطای کدنویسی رخ داد!", show_alert=True)
 
-    # 🔴🔥 سیستم قدرتمند چرخه روزگار (Battle Logic)
+    # 🔴🔥 موتور چرخه روزگار (Battle Logic Engine)
     elif action.startswith("action_"):
         action_type = parts[2]
         
+        # لود وضعیت
         boss_hp = int(await get_setting(f"user_{owner_id}_boss_hp", 15000))
         player_hp = int(await get_setting(f"user_{owner_id}_hp", 80))
         shield = int(await get_setting(f"user_{owner_id}_shield", 20))
         coins = int(await get_setting(f"user_{owner_id}_coins", 12500))
         xp = int(await get_setting(f"user_{owner_id}_xp", 150))
+        user_weapon = await get_setting(f"user_{owner_id}_weapon", "knife")
+        
+        # محاسبه دمیج بر اساس سلاح مجهز شده
+        weapon_base_dmg = WEAPONS_DMG.get(user_weapon, 150)
         
         log_msg = ""
+        # رندوم‌سازی ایموجی‌های پرمیوم شما برای ایجاد حس لایو
+        ATK_EMOJIS = ["5345906988301725409", "5958375350550403093", "5958322028531423656", "5343897957219477338"]
+        BOS_EMOJIS = ["6044381950393719705", "5780382873487939194", "6037163978679916501", "5829994341371747297"]
+        HEL_EMOJIS = ["5868727352879485936", "5868656266875769200", "5902141940744330810", "6028551194861899805"]
+
         if action_type == "damage":
-            dmg = random.randint(100, 200)
+            # ضربه دقیق سلاح + کمی نوسان (Critical Hit/Graze)
+            dmg = weapon_base_dmg + random.randint(-10, 20)
             boss_hp -= dmg
-            boss_dmg = random.randint(10, 30)
-            if shield > 0: shield -= boss_dmg
+            
+            # ضدحمله باس
+            boss_dmg = random.randint(15, 35)
+            if shield > 0: 
+                if shield >= boss_dmg: shield -= boss_dmg
+                else: 
+                    player_hp -= (boss_dmg - shield)
+                    shield = 0
             else: player_hp -= boss_dmg
-            log_msg = f"{e(random.choice(ATTACK_EMOJIS))} <i>تو {dmg} دمیج زدی، اما دراخور با {boss_dmg} دمیج به تو حمله کرد!</i>"
+            
+            log_msg = f"{e(random.choice(ATK_EMOJIS))} <i>تو {dmg} دمیج زدی، اما دراخور با {boss_dmg} دمیج ضدحمله کرد!</i>"
 
         elif action_type == "petdmg":
             char_id = await get_setting(f"user_{owner_id}_char", "1")
             has_pet = await get_setting(f"user_{owner_id}_pet_{char_id}") == "1"
             if not has_pet:
-                return await callback.answer("⚠️ شما هنوز برای این کاراکتر حیوان نبرد نخریده‌اید!", show_alert=True)
-            dmg = random.randint(300, 500)
+                return await callback.answer("⚠️ شما هنوز حیوان نبرد نخریده‌اید!", show_alert=True)
+            dmg = random.randint(400, 600)
             boss_hp -= dmg
-            log_msg = f"{e(random.choice(ATTACK_EMOJIS))} <i>حیوان تو به طرز وحشیانه‌ای {dmg} دمیج وارد کرد! دراخور گیج شده!</i>"
+            log_msg = f"{e(random.choice(ATK_EMOJIS))} <i>حیوان تو به طرز وحشیانه‌ای {dmg} دمیج وارد کرد! دراخور گیج شده!</i>"
 
         elif action_type == "power":
-            dmg = random.randint(200, 400)
+            dmg = weapon_base_dmg * 2
             boss_hp -= dmg
-            player_hp -= random.randint(20, 50)
-            log_msg = f"{e(random.choice(BOSS_EMOJIS))} <i>قدرت نمایی کردی و {dmg} دمیج زدی، اما خودت هم آسیب دیدی!</i>"
+            player_hp -= random.randint(25, 60) # دمیج فشاری به خود بازیکن
+            log_msg = f"{e(random.choice(BOS_EMOJIS))} <i>قدرت نمایی کردی و {dmg} دمیج زدی، اما فشار حمله به خودت آسیب زد!</i>"
 
         elif action_type == "shield":
             if coins >= 1000 and shield < 50:
                 coins -= 1000
                 shield = min(50, shield + 20)
-                log_msg = f"{e(random.choice(HEAL_EMOJIS))} <i>با ۱۰۰۰ سکه سپر خود را شارژ کردی! دراخور عصبانی است...</i>"
+                log_msg = f"{e(random.choice(HEL_EMOJIS))} <i>با ۱۰۰۰ سکه سپر خود را تقویت کردی! دراخور عصبانی است...</i>"
             else:
-                return await callback.answer("سکه کافی نیست یا سپرت پر است! (قیمت: ۱۰۰۰ سکه)", show_alert=True)
+                return await callback.answer("سکه کافی نیست یا سپرت پر است! (قیمت: ۱۰۰۰)", show_alert=True)
 
         elif action_type == "buyhp":
             if coins >= 500 and player_hp < 100:
                 coins -= 500
                 player_hp = min(100, player_hp + 30)
-                log_msg = f"{e(random.choice(HEAL_EMOJIS))} <i>معجون خون خریدی (+۳۰ HP)! دراخور پوزخند می‌زند...</i>"
+                log_msg = f"{e(random.choice(HEL_EMOJIS))} <i>معجون خون خریدی (+۳۰ HP)! دراخور پوزخند می‌زند...</i>"
             else:
-                return await callback.answer("سکه کافی نیست یا خونت پر است! (قیمت: ۵۰۰ سکه)", show_alert=True)
+                return await callback.answer("سکه کافی نیست یا خونت پر است! (قیمت: ۵۰۰)", show_alert=True)
 
-        if shield < 0:
-            player_hp += shield
-            shield = 0
+        # جلوگیری از منفی شدن مقادیر در گرافیک
+        if player_hp < 0: player_hp = 0
+        if boss_hp < 0: boss_hp = 0
+        if shield < 0: shield = 0
         
-        # بررسی زنده ماندن یا مردن
+        # بررسی مرگ یا پیروزی در چرخه
         if player_hp <= 0:
             player_hp = 100
             coins = max(0, coins - 2000)
@@ -889,19 +858,23 @@ async def handle_all_buttons(callback: types.CallbackQuery):
             boss_hp = 15000
             coins += 50000
             xp += 200
+            gold = int(await get_setting(f"user_{owner_id}_gold", 0)) + 1
             await set_setting(f"user_{owner_id}_boss_hp", str(boss_hp))
             await set_setting(f"user_{owner_id}_coins", str(coins))
             await set_setting(f"user_{owner_id}_xp", str(xp))
-            await callback.answer("🎉 دراخور را شکست دادی! ۵۰,۰۰۰ سکه و ۲۰۰ XP جایزه گرفتی!", show_alert=True)
+            await set_setting(f"user_{owner_id}_gold", str(gold))
+            await callback.answer("🎉 دراخور را شکست دادی! ۵۰,۰۰۰ سکه، ۲۰۰ XP و ۱ طلا جایزه گرفتی!", show_alert=True)
             kb = await get_raw_gamemenu_keyboard(owner_id)
             await transition_menu(callback, "photo_gamemenu", GAME_MENU_TEXT, kb)
             return
 
+        # ذخیره سریع وضعیت
         await set_setting(f"user_{owner_id}_boss_hp", str(boss_hp))
         await set_setting(f"user_{owner_id}_hp", str(player_hp))
         await set_setting(f"user_{owner_id}_shield", str(shield))
         await set_setting(f"user_{owner_id}_coins", str(coins))
         
+        # آپدیت صفحه نبرد با حفظ ریپلای
         text = await get_battle_arena_text(owner_id, log_msg)
         kb = await get_raw_battle_arena_keyboard(owner_id)
         
@@ -1001,7 +974,7 @@ async def main():
     await init_db()
     me = await bot.get_me()
     BOT_USERNAME = me.username
-    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) با دیتابیس عظیم ایموجی‌ها و چرخه روزگار فعال شد!")
+    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) با موتور کامل چرخه روزگار راه‌اندازی شد!")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
