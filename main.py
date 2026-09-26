@@ -53,8 +53,46 @@ async def set_setting(key: str, value: str):
         await db.commit()
 
 # ==========================================
-# 🧩 پردازشگر هوشمند ایموجی‌های پرمیوم
+# 🧩 دیتابیس ایموجی‌ها و پردازشگر
 # ==========================================
+ATTACK_EMOJIS = [
+    "5345906988301725409", "5343897957219477338", "5344032282321660839", "5343740353394551254", "5345939127541996538", 
+    "5345800077975792172", "5343945962068946147", "5345801830322445591", "5339298412317680982", "5339480720794496201",
+    "5339252847009634986", "5339142681098497146", "5339175846835953172", "5339384281598830250", "5337004109507634021",
+    "5339441125490992832", "5958375350550403093", "5958490962480077066", "5958761283426719331", "5958376072104907832",
+    "5958511380754601050", "5958372885239174716", "5958461262781225622", "5958816121569154412", "5958333805331748627",
+    "5958594101824721885", "5958546676795840177", "5958701364337972534", "5958267186094020392", "5958665720404383923",
+    "5958635874676643966", "5958609692556007137", "5958795840733583887", "5956169116044761371", "5958574052917384760",
+    "5958621525190908249", "5958505857426659267", "5958804155790268495", "5958353600836015944", "5958578863280756877",
+    "5958546861479434425", "5958487981772773271", "5958322028531423656", "5958643717286926603", "5958428071273961070",
+    "5958762662111221332", "5956101388705470045", "5958281097493092896", "5956394859525837952", "5958746371300267640",
+    "5956379642456708521", "5958473597927298471", "5958555236665660683", "5958581551930283817", "5958662262955711244",
+    "5958378245358360456", "5958808141519919086", "5958786662388471763", "5958606630244325380", "5958618136461711872",
+    "5958415641638607251", "5958624179480697023", "5958318313384711376", "5958816276187985125", "5958767927741126280"
+]
+
+BOSS_EMOJIS = [
+    "6041846334846146779", "6041718654058374097", "6041988081651817010", "6042000747510373449", "6044381950393719705",
+    "6041691913591986795", "6041794945562451034", "6044031657156025745", "6042067207834312047", "6044392984164702858",
+    "6021493696011180326", "6021679199943665107", "6028251384669805758", "6021503011795245594", "6021683482026057273",
+    "6021524963373098074", "6021527201051056472", "6021608144004716962", "6021653215391521041", "6021776476657949960",
+    "6021628944531331852", "6021562582991640411", "6021324839371938222", "6021836374271860084", "6021339012764015617",
+    "5783004749158685627", "5780556707994278784", "5782701868064971518", "5782913730211748145", "5780658176596646924",
+    "5780609587631627157", "5780781407798305236", "5780585368311045618", "5780929133198450198", "5782843400122276474",
+    "6037413112552889117", "6039679437945968043", "6039706547779541220", "5958808923203967006", "5958322028531423656",
+    "5958487981772773271", "5780382873487939194", "5780765881491529111", "5829994341371747297", "6037163978679916501",
+    "6034869770359152915", "6035078071978040145", "6037584997144074766", "6035097914726947384", "6034966544562265361",
+    "6037095632865335166", "6037502439282712379", "6037533659399985698", "6037502185879641476", "6028251384669805758",
+    "5814562360668461990", "5904551078094970096", "6039356525124787397", "6044381950393719705"
+]
+
+HEAL_EMOJIS = [
+    "5868727352879485936", "5868656266875769200", "5902141940744330810", "6028551194861899805", "6032699501909644905",
+    "5902324558458789912", "5904341217402952011", "5902143499817458993", "6041761200004406848", "6041737710828264758",
+    "6044320575311060640", "5814620926842511271", "5832631378277050554", "5807769659436440096", "5918119176135774001",
+    "5857150470396581154", "5899781869100076644", "6037400103096948939", "6039877646391711784"
+]
+
 async def get_emoji(btn_name: str, default_id: str):
     return await get_setting(f"emoji_{btn_name}", default_id)
 
@@ -81,7 +119,7 @@ async def btn(text: str, cb_data: str, emoji_name: str, default_emoji: str):
     return button
 
 # ==========================================
-# 📝 متون ثابت و گرافیکی ربات
+# 📝 متون ثابت ربات
 # ==========================================
 MAIN_TEXT = parse_emojis("5282974228377789040 <b>منوی اصلی بازی تاتاروس</b>\n\n5019617635629794161 بخش مورد نظر خود را انتخاب کنید:")
 GAME_MENU_TEXT = parse_emojis("5282974228377789040 <b>منوی داستانی تاتاروس</b>\n\n5019617635629794161 بخش مورد نظر خود را انتخاب کنید:")
@@ -116,7 +154,7 @@ BATTLE_INTRO_TEXT = parse_emojis(
 WEAPONS_DMG = {"knife": 150, "sword": 300, "colt": 600, "ak47": 1200}
 WEAPONS_NAMES = {"knife": "ﭼﺎﻗﻮ (L1)", "sword": "ﺷﻤﺸﯿﺮ (L2)", "colt": "ﮐﻠﺖ (L3)", "ak47": "ﮐﻼﺵ (L4)"}
 
-# ⚔️ تابع تولید میدان نبرد متحرک (گاد و خفن)
+# ⚔️ تابع تولید میدان نبرد متحرک (حذف براکت‌ها و متون اضافه)
 async def get_battle_arena_text(user_id: int, log_msg: str = None):
     boss_hp = int(await get_setting(f"user_{user_id}_boss_hp", 15000))
     boss_max = 15000
@@ -154,18 +192,18 @@ async def get_battle_arena_text(user_id: int, log_msg: str = None):
         START_EMOJIS = ["6044381950393719705", "6037533659399985698", "6037163978679916501"]
         log_msg = f"{e(random.choice(START_EMOJIS))} <i>ﺩﺭﺍﺧﻮﺭ ﺑﺎ ﭼﺸﻤﺎﻧﯽ ﺧﻮﻧﯿﻦ ﺑﻪ ﺗﻮ ﺧﯿﺮﻩ ﺷﺪﻩ ﺍﺳﺖ...</i>"
 
+    # حذف تمام براکت‌های اضافی و متون حاشیه‌ای طبق درخواست
     text = (
-        f"{e('6021608144004716962')} <b>[ ﻣﯿﺪﺍﻥ ﻧﺒﺮﺩ : ﺗﺎﺗﺎﺭﻭﺱ ]</b> {e('6021608144004716962')}\n\n"
-        f"{e('6044381950393719705')} <b>[ ﺩﺷﻤﻦ : ﺩﺭﺍﺧﻮﺭ ]</b>\n"
-        f"{e('6037533659399985698')} HP: {boss_bar} <code>[{boss_hp//1000}K / {boss_max//1000}K]</code>\n"
+        f"{e('6021608144004716962')} <b>ﻣﯿﺪﺍﻥ ﻧﺒﺮﺩ : ﺗﺎﺗﺎﺭﻭﺱ</b> {e('6021608144004716962')}\n\n"
+        f"{e('6044381950393719705')} <b>ﺩﺷﻤﻦ : ﺩﺭﺍﺧﻮﺭ</b>\n"
+        f"{e('6037533659399985698')} HP: {boss_bar} <code>{boss_hp//1000}K / {boss_max//1000}K</code>\n"
         f"{e('6037163978679916501')} DMG: <code>100 - 300</code>\n\n"
-        f"{e(char_emoji)} <b>[ ﺷﻤﺎ : {char_name} ]</b>\n"
-        f"{e('6034966544562265361')} HP: {hp_bar} <code>[{player_hp} / {player_max}]</code>\n"
-        f"{e('6028551194861899805')} SHD: {shield_bar} <code>[{player_shield} / {shield_max}]</code>\n"
-        f"{e('6039679437945968043')} XP: {xp_bar} <code>[{player_xp} / {xp_max}]</code>\n\n"
+        f"{e(char_emoji)} <b>ﺷﻤﺎ : {char_name}</b>\n"
+        f"{e('6034966544562265361')} HP: {hp_bar} <code>{player_hp} / {player_max}</code>\n"
+        f"{e('6028551194861899805')} SHD: {shield_bar} <code>{player_shield} / {shield_max}</code>\n"
+        f"{e('6039679437945968043')} XP: {xp_bar} <code>{player_xp} / {xp_max}</code>\n\n"
         f"{e('5958322028531423656')} ﺳﻼﺡ: <code>{current_weapon_name}</code> | {e('5958808923203967006')} ﺁﺳﯿﺐ: <code>{current_weapon_dmg}</code>\n"
         f"{e('6032699501909644905')} ﺳﮑﻪ: <code>{coins:,}</code> | {e('5870839969982976188')} ﻃﻼ: <code>{gold}</code>\n\n"
-        f"{e('6028251384669805758')} <b>ﮔﺰﺍﺭﺵ ﺯﻧﺪﻩ ﻧﺒﺮﺩ :</b>\n"
         f"{log_msg}"
     )
     return text
@@ -199,7 +237,7 @@ async def send_raw_api(method: str, payload: dict):
 # 💎 پنل مدیریت شیشه‌ای (Admin UI)
 # ==========================================
 class AdminSetup(StatesGroup):
-    waiting_for_photo = State()
+    waiting_for_media = State()
     waiting_for_text = State()
     waiting_for_emoji_btn_name = State()
     waiting_for_emoji_code = State()
@@ -235,6 +273,7 @@ async def get_admin_story_cat_kb():
     b.button(text=f"منو داستانی {ic(await get_setting('photo_gamemenu'))}", callback_data="adm_req_photo_gamemenu")
     
     b.button(text=f"پیش‌نبرد {ic(await get_setting('photo_gamestart'))}", callback_data="adm_req_photo_gamestart")
+    b.button(text=f"میدان نبرد (مدیا) {ic(await get_setting('photo_battle'))}", callback_data="adm_req_photo_battle")
     
     b.button(text=f"منو ارتقا {ic(await get_setting('photo_upgrade'))}", callback_data="adm_req_photo_upgrade")
     b.button(text=f"جایزه روزانه {ic(await get_setting('photo_gamedaily'))}", callback_data="adm_req_photo_gamedaily")
@@ -250,7 +289,7 @@ async def get_admin_story_cat_kb():
     b.button(text="تغییر ایموجی‌ها ✨", callback_data="adm_req_emoji")
     
     b.button(text="بازگشت", callback_data="adm_home")
-    b.adjust(2, 2, 2, 2, 2, 2, 2, 1, 1)
+    b.adjust(2, 2, 2, 2, 2, 2, 2, 2, 1, 1)
     return b.as_markup()
 
 @dp.message(F.text == "تغییرات")
@@ -298,9 +337,9 @@ async def handle_admin_requests(callback: types.CallbackQuery, state: FSMContext
     
     if req.startswith("photo_"):
         target = req.replace("photo_", "")
-        await state.set_state(AdminSetup.waiting_for_photo)
+        await state.set_state(AdminSetup.waiting_for_media)
         await state.update_data(target_menu=target, back_to="story" if target != "main" else "main")
-        await callback.message.edit_text("📸 عکس مورد نظر را ارسال نمایید:")
+        await callback.message.edit_text("🎥 عکس، ویدیو یا گیف مورد نظر را ارسال نمایید:")
         
     elif req.startswith("text_"):
         target = req.replace("text_", "")
@@ -328,14 +367,26 @@ async def handle_admin_requests(callback: types.CallbackQuery, state: FSMContext
         await state.set_state(AdminSetup.waiting_for_emoji_btn_name)
         await callback.message.edit_text("نام دکمه‌ای که می‌خواهید ایموجی آن تغییر کند را ارسال کنید (مثال: شروع):")
 
-# --- دریافت مقادیر FSM ---
-@dp.message(F.photo, AdminSetup.waiting_for_photo)
-async def receive_photo(message: types.Message, state: FSMContext):
-    await state.update_data(temp_file_id=message.photo[-1].file_id)
+# --- دریافت مقادیر FSM (پشتیبانی از عکس/ویدیو/گیف) ---
+@dp.message(F.photo | F.video | F.animation, AdminSetup.waiting_for_media)
+async def receive_media(message: types.Message, state: FSMContext):
+    if message.photo:
+        file_id = message.photo[-1].file_id
+        m_type = "photo"
+    elif message.video:
+        file_id = message.video.file_id
+        m_type = "video"
+    elif message.animation:
+        file_id = message.animation.file_id
+        m_type = "animation"
+    else:
+        return await message.reply("❌ لطفا فقط عکس، ویدیو یا گیف ارسال کنید.")
+        
+    await state.update_data(temp_file_id=file_id, temp_media_type=m_type)
     b = InlineKeyboardBuilder()
     b.button(text="✅ بله", callback_data="admin_confirm_photo")
     b.button(text="❌ خیر", callback_data="admin_reject")
-    await message.reply("آیا عکس تایید است؟", reply_markup=b.as_markup())
+    await message.reply("آیا این فایل رسانه‌ای تایید است؟", reply_markup=b.as_markup())
 
 @dp.message(F.text, AdminSetup.waiting_for_text)
 async def receive_text_input(message: types.Message, state: FSMContext):
@@ -364,10 +415,12 @@ async def receive_emoji_code(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data == "admin_confirm_photo")
 async def confirm_photo(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    await set_setting(f"photo_{data['target_menu']}", data['temp_file_id'])
+    target = data['target_menu']
+    await set_setting(f"photo_{target}", data['temp_file_id'])
+    await set_setting(f"type_{target}", data.get('temp_media_type', 'photo'))
     back_to = data.get("back_to", "story")
     kb = await get_admin_main_cat_kb() if back_to == "main" else await get_admin_story_cat_kb()
-    await callback.message.edit_text("✅ عکس با موفقیت تغییر یافت!\n\nپنل مدیریت:", reply_markup=kb)
+    await callback.message.edit_text("✅ رسانه با موفقیت تغییر یافت!\n\nپنل مدیریت:", reply_markup=kb)
     await state.clear()
 
 @dp.callback_query(F.data == "admin_confirm_text")
@@ -648,13 +701,26 @@ async def trigger_tatarus_menu(message: types.Message):
     if message.chat.type in ["group", "supergroup"]:
         user_id = message.from_user.id
         photo = await get_setting("photo_main")
+        m_type = await get_setting("type_main", "photo")
         kb = await get_raw_main_keyboard(user_id)
         
-        payload = {"chat_id": message.chat.id, "parse_mode": "HTML", "reply_parameters": {"message_id": message.message_id}, "reply_markup": {"inline_keyboard": kb}}
+        payload = {
+            "chat_id": message.chat.id, "parse_mode": "HTML",
+            "reply_parameters": {"message_id": message.message_id},
+            "reply_markup": {"inline_keyboard": kb}
+        }
+        
         if photo:
-            payload["photo"] = photo
             payload["caption"] = MAIN_TEXT
-            await send_raw_api("sendPhoto", payload)
+            if m_type == "video":
+                payload["video"] = photo
+                await send_raw_api("sendVideo", payload)
+            elif m_type == "animation":
+                payload["animation"] = photo
+                await send_raw_api("sendAnimation", payload)
+            else:
+                payload["photo"] = photo
+                await send_raw_api("sendPhoto", payload)
         else:
             payload["text"] = MAIN_TEXT
             await send_raw_api("sendMessage", payload)
@@ -666,17 +732,47 @@ async def trigger_battle_arena_cmd(message: types.Message):
         try:
             text = await get_battle_arena_text(user_id)
             kb = await get_raw_battle_arena_keyboard(user_id)
-            payload = {"chat_id": message.chat.id, "text": text, "parse_mode": "HTML", "reply_markup": {"inline_keyboard": kb}}
-            await send_raw_api("sendMessage", payload)
+            
+            target_photo = await get_setting("photo_battle")
+            target_type = await get_setting("type_battle", "photo")
+            
+            # ارسال با ریپلای مستقیم روی پیام کاربر
+            payload = {
+                "chat_id": message.chat.id, 
+                "parse_mode": "HTML",
+                "reply_parameters": {"message_id": message.message_id},
+                "reply_markup": {"inline_keyboard": kb}
+            }
+            
+            if target_photo:
+                payload["caption"] = text
+                if target_type == "video":
+                    result = await send_raw_api("sendVideo", payload)
+                elif target_type == "animation":
+                    result = await send_raw_api("sendAnimation", payload)
+                else:
+                    result = await send_raw_api("sendPhoto", payload)
+            else:
+                payload["text"] = text
+                result = await send_raw_api("sendMessage", payload)
+                
+            if not result.get("ok"):
+                await send_raw_api("sendMessage", {
+                    "chat_id": message.chat.id,
+                    "text": f"⚠️ ارور تلگرام:\n`{result.get('description')}`",
+                    "parse_mode": "Markdown"
+                })
         except Exception as e:
             await send_raw_api("sendMessage", {"chat_id": message.chat.id, "text": f"خطای ربات: {e}"})
 
 # ==========================================
-# 🔄 جابجایی هوشمند بین منوها
+# 🔄 جابجایی هوشمند بین منوها (پشتیبانی از گیف، ویدیو و حفظ ریپلای)
 # ==========================================
 async def transition_menu(callback: types.CallbackQuery, photo_key: str, text: str, keyboard: list):
-    target_photo = await get_setting(photo_key)
+    target_media = await get_setting(photo_key)
+    target_type = await get_setting(photo_key.replace("photo_", "type_"), "photo")
     has_media = True if (callback.message.photo or callback.message.animation or callback.message.video or callback.message.document) else False
+    
     chat_id = callback.message.chat.id
     msg_id = callback.message.message_id
     
@@ -684,15 +780,24 @@ async def transition_menu(callback: types.CallbackQuery, photo_key: str, text: s
     if callback.message.reply_to_message:
         reply_params = {"message_id": callback.message.reply_to_message.message_id}
     
-    if target_photo:
+    if target_media:
         if has_media:
-            payload = {"chat_id": chat_id, "message_id": msg_id, "media": {"type": "photo", "media": target_photo, "caption": text, "parse_mode": "HTML"}, "reply_markup": {"inline_keyboard": keyboard}}
+            # ویرایش زنده (لایو) رسانه: پیام پاک نمی‌شود و ریپلای حفظ می‌شود!
+            payload = {"chat_id": chat_id, "message_id": msg_id, "media": {"type": target_type, "media": target_media, "caption": text, "parse_mode": "HTML"}, "reply_markup": {"inline_keyboard": keyboard}}
             await send_raw_api("editMessageMedia", payload)
         else:
             await callback.message.delete()
-            payload = {"chat_id": chat_id, "photo": target_photo, "caption": text, "parse_mode": "HTML", "reply_markup": {"inline_keyboard": keyboard}}
+            payload = {"chat_id": chat_id, "caption": text, "parse_mode": "HTML", "reply_markup": {"inline_keyboard": keyboard}}
             if reply_params: payload["reply_parameters"] = reply_params 
-            await send_raw_api("sendPhoto", payload)
+            if target_type == "video":
+                payload["video"] = target_media
+                await send_raw_api("sendVideo", payload)
+            elif target_type == "animation":
+                payload["animation"] = target_media
+                await send_raw_api("sendAnimation", payload)
+            else:
+                payload["photo"] = target_media
+                await send_raw_api("sendPhoto", payload)
     else:
         if not has_media:
             payload = {"chat_id": chat_id, "message_id": msg_id, "text": text, "parse_mode": "HTML", "reply_markup": {"inline_keyboard": keyboard}}
@@ -704,7 +809,7 @@ async def transition_menu(callback: types.CallbackQuery, photo_key: str, text: s
             await send_raw_api("sendMessage", payload)
 
 # ==========================================
-# 🎛 هندلرهای اصلی و چرخه روزگار (Battle Engine)
+# 🎛 هندلرهای اصلی
 # ==========================================
 @dp.callback_query(F.data.startswith("btn_"))
 async def handle_all_buttons(callback: types.CallbackQuery):
@@ -745,24 +850,14 @@ async def handle_all_buttons(callback: types.CallbackQuery):
         await transition_menu(callback, "photo_gamestart", BATTLE_INTRO_TEXT, kb)
         return await callback.answer()
 
+    # 🔴 ورود به میدان نبرد با استفاده از سیستم ترنزیشن هوشمند (برای حفظ ریپلای)
     elif action == "battle":
         try:
             text = await get_battle_arena_text(owner_id)
             kb = await get_raw_battle_arena_keyboard(owner_id)
-            has_media = True if (callback.message.photo or callback.message.animation or callback.message.video or callback.message.document) else False
-            payload = {"chat_id": callback.message.chat.id, "text": text, "parse_mode": "HTML", "reply_markup": {"inline_keyboard": kb}}
-
-            if has_media:
-                await callback.message.delete()
-                if callback.message.reply_to_message:
-                    payload["reply_parameters"] = {"message_id": callback.message.reply_to_message.message_id}
-                result = await send_raw_api("sendMessage", payload)
-            else:
-                payload["message_id"] = callback.message.message_id
-                result = await send_raw_api("editMessageText", payload)
-                
-            if not result.get("ok"):
-                await send_raw_api("sendMessage", {"chat_id": callback.message.chat.id, "text": f"⚠️ ارور تلگرام:\n`{result.get('description')}`", "parse_mode": "Markdown"})
+            
+            # ارسال با تابع هوشمند که خودش ریپلای و مدیا را مدیریت می‌کند
+            await transition_menu(callback, "photo_battle", text, kb)
                 
             return await callback.answer("⚔️ وارد میدان شدی! حواست به جانت باشه...")
             
@@ -770,11 +865,9 @@ async def handle_all_buttons(callback: types.CallbackQuery):
             logging.error(f"Battle Load Error: {e}")
             return await callback.answer("⚠️ خطای کدنویسی رخ داد!", show_alert=True)
 
-    # 🔴🔥 موتور چرخه روزگار (Battle Logic Engine)
     elif action.startswith("action_"):
         action_type = parts[2]
         
-        # لود وضعیت
         boss_hp = int(await get_setting(f"user_{owner_id}_boss_hp", 15000))
         player_hp = int(await get_setting(f"user_{owner_id}_hp", 80))
         shield = int(await get_setting(f"user_{owner_id}_shield", 20))
@@ -782,21 +875,12 @@ async def handle_all_buttons(callback: types.CallbackQuery):
         xp = int(await get_setting(f"user_{owner_id}_xp", 150))
         user_weapon = await get_setting(f"user_{owner_id}_weapon", "knife")
         
-        # محاسبه دمیج بر اساس سلاح مجهز شده
         weapon_base_dmg = WEAPONS_DMG.get(user_weapon, 150)
-        
         log_msg = ""
-        # رندوم‌سازی ایموجی‌های پرمیوم شما برای ایجاد حس لایو
-        ATK_EMOJIS = ["5345906988301725409", "5958375350550403093", "5958322028531423656", "5343897957219477338"]
-        BOS_EMOJIS = ["6044381950393719705", "5780382873487939194", "6037163978679916501", "5829994341371747297"]
-        HEL_EMOJIS = ["5868727352879485936", "5868656266875769200", "5902141940744330810", "6028551194861899805"]
 
         if action_type == "damage":
-            # ضربه دقیق سلاح + کمی نوسان (Critical Hit/Graze)
             dmg = weapon_base_dmg + random.randint(-10, 20)
             boss_hp -= dmg
-            
-            # ضدحمله باس
             boss_dmg = random.randint(15, 35)
             if shield > 0: 
                 if shield >= boss_dmg: shield -= boss_dmg
@@ -804,8 +888,7 @@ async def handle_all_buttons(callback: types.CallbackQuery):
                     player_hp -= (boss_dmg - shield)
                     shield = 0
             else: player_hp -= boss_dmg
-            
-            log_msg = f"{e(random.choice(ATK_EMOJIS))} <i>تو {dmg} دمیج زدی، اما دراخور با {boss_dmg} دمیج ضدحمله کرد!</i>"
+            log_msg = f"{e(random.choice(ATTACK_EMOJIS))} <i>تو {dmg} دمیج زدی، اما دراخور با {boss_dmg} دمیج ضدحمله کرد!</i>"
 
         elif action_type == "petdmg":
             char_id = await get_setting(f"user_{owner_id}_char", "1")
@@ -814,19 +897,19 @@ async def handle_all_buttons(callback: types.CallbackQuery):
                 return await callback.answer("⚠️ شما هنوز حیوان نبرد نخریده‌اید!", show_alert=True)
             dmg = random.randint(400, 600)
             boss_hp -= dmg
-            log_msg = f"{e(random.choice(ATK_EMOJIS))} <i>حیوان تو به طرز وحشیانه‌ای {dmg} دمیج وارد کرد! دراخور گیج شده!</i>"
+            log_msg = f"{e(random.choice(ATTACK_EMOJIS))} <i>حیوان تو به طرز وحشیانه‌ای {dmg} دمیج وارد کرد! دراخور گیج شده!</i>"
 
         elif action_type == "power":
             dmg = weapon_base_dmg * 2
             boss_hp -= dmg
-            player_hp -= random.randint(25, 60) # دمیج فشاری به خود بازیکن
-            log_msg = f"{e(random.choice(BOS_EMOJIS))} <i>قدرت نمایی کردی و {dmg} دمیج زدی، اما فشار حمله به خودت آسیب زد!</i>"
+            player_hp -= random.randint(25, 60) 
+            log_msg = f"{e(random.choice(BOSS_EMOJIS))} <i>قدرت نمایی کردی و {dmg} دمیج زدی، اما فشار حمله به خودت آسیب زد!</i>"
 
         elif action_type == "shield":
             if coins >= 1000 and shield < 50:
                 coins -= 1000
                 shield = min(50, shield + 20)
-                log_msg = f"{e(random.choice(HEL_EMOJIS))} <i>با ۱۰۰۰ سکه سپر خود را تقویت کردی! دراخور عصبانی است...</i>"
+                log_msg = f"{e(random.choice(HEAL_EMOJIS))} <i>با ۱۰۰۰ سکه سپر خود را تقویت کردی! دراخور عصبانی است...</i>"
             else:
                 return await callback.answer("سکه کافی نیست یا سپرت پر است! (قیمت: ۱۰۰۰)", show_alert=True)
 
@@ -834,16 +917,14 @@ async def handle_all_buttons(callback: types.CallbackQuery):
             if coins >= 500 and player_hp < 100:
                 coins -= 500
                 player_hp = min(100, player_hp + 30)
-                log_msg = f"{e(random.choice(HEL_EMOJIS))} <i>معجون خون خریدی (+۳۰ HP)! دراخور پوزخند می‌زند...</i>"
+                log_msg = f"{e(random.choice(HEAL_EMOJIS))} <i>معجون خون خریدی (+۳۰ HP)! دراخور پوزخند می‌زند...</i>"
             else:
                 return await callback.answer("سکه کافی نیست یا خونت پر است! (قیمت: ۵۰۰)", show_alert=True)
 
-        # جلوگیری از منفی شدن مقادیر در گرافیک
         if player_hp < 0: player_hp = 0
         if boss_hp < 0: boss_hp = 0
         if shield < 0: shield = 0
         
-        # بررسی مرگ یا پیروزی در چرخه
         if player_hp <= 0:
             player_hp = 100
             coins = max(0, coins - 2000)
@@ -868,18 +949,15 @@ async def handle_all_buttons(callback: types.CallbackQuery):
             await transition_menu(callback, "photo_gamemenu", GAME_MENU_TEXT, kb)
             return
 
-        # ذخیره سریع وضعیت
         await set_setting(f"user_{owner_id}_boss_hp", str(boss_hp))
         await set_setting(f"user_{owner_id}_hp", str(player_hp))
         await set_setting(f"user_{owner_id}_shield", str(shield))
         await set_setting(f"user_{owner_id}_coins", str(coins))
         
-        # آپدیت صفحه نبرد با حفظ ریپلای
+        # بروزرسانی صفحه نبرد با ویرایش زنده (حفظ ریپلای)
         text = await get_battle_arena_text(owner_id, log_msg)
         kb = await get_raw_battle_arena_keyboard(owner_id)
-        
-        payload = {"chat_id": callback.message.chat.id, "message_id": callback.message.message_id, "text": text, "parse_mode": "HTML", "reply_markup": {"inline_keyboard": kb}}
-        await send_raw_api("editMessageText", payload)
+        await transition_menu(callback, "photo_battle", text, kb)
         return await callback.answer()
 
     elif action == "gameupg":
@@ -974,7 +1052,7 @@ async def main():
     await init_db()
     me = await bot.get_me()
     BOT_USERNAME = me.username
-    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) با موتور کامل چرخه روزگار راه‌اندازی شد!")
+    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) با پشتیبانی از مدیا و ویرایش هوشمند راه‌اندازی شد!")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
