@@ -32,10 +32,10 @@ async def init_db():
         await db.commit()
     
     defaults = {
-        "char1_name": "زولو = ZOLLO", "char1_emoji": "5832457500821034730",
-        "char2_name": "نورا = NORA",  "char2_emoji": "",
-        "char3_name": "جسپر = JESPER", "char3_emoji": "",
-        "char4_name": "رکس = REX",   "char4_emoji": ""
+        "char1_name": "زولو", "char1_emoji": "5832457500821034730",
+        "char2_name": "نورا", "char2_emoji": "5958487981772773271",
+        "char3_name": "جسپر", "char3_emoji": "5780382873487939194",
+        "char4_name": "رکس", "char4_emoji": "6034966544562265361"
     }
     for k, v in defaults.items():
         if await get_setting(k) is None:
@@ -53,7 +53,51 @@ async def set_setting(key: str, value: str):
         await db.commit()
 
 # ==========================================
-# 🧩 سیستم هوشمند ایموجی و پروگرس بار
+# 🧩 دیتابیس عظیم ایموجی‌های پرمیوم شما
+# ==========================================
+# لیست شمشیرها و ضربات برای حمله
+ATTACK_EMOJIS = [
+    "5345906988301725409", "5343897957219477338", "5344032282321660839", "5343740353394551254", "5345939127541996538", 
+    "5345800077975792172", "5343945962068946147", "5345801830322445591", "5339298412317680982", "5339480720794496201",
+    "5339252847009634986", "5339142681098497146", "5339175846835953172", "5339384281598830250", "5337004109507634021",
+    "5339441125490992832", "5958375350550403093", "5958490962480077066", "5958761283426719331", "5958376072104907832",
+    "5958511380754601050", "5958372885239174716", "5958461262781225622", "5958816121569154412", "5958333805331748627",
+    "5958594101824721885", "5958546676795840177", "5958701364337972534", "5958267186094020392", "5958665720404383923",
+    "5958635874676643966", "5958609692556007137", "5958795840733583887", "5956169116044761371", "5958574052917384760",
+    "5958621525190908249", "5958505857426659267", "5958804155790268495", "5958353600836015944", "5958578863280756877",
+    "5958546861479434425", "5958487981772773271", "5958322028531423656", "5958643717286926603", "5958428071273961070",
+    "5958762662111221332", "5956101388705470045", "5958281097493092896", "5956394859525837952", "5958746371300267640",
+    "5956379642456708521", "5958473597927298471", "5958555236665660683", "5958581551930283817", "5958662262955711244",
+    "5958378245358360456", "5958808141519919086", "5958786662388471763", "5958606630244325380", "5958618136461711872",
+    "5958415641638607251", "5958624179480697023", "5958318313384711376", "5958816276187985125", "5958767927741126280"
+]
+
+# لیست انیمه‌های خشمگین و ترسناک (برای دراخور و آسیب دیدن)
+BOSS_EMOJIS = [
+    "6041846334846146779", "6041718654058374097", "6041988081651817010", "6042000747510373449", "6044381950393719705",
+    "6041691913591986795", "6041794945562451034", "6044031657156025745", "6042067207834312047", "6044392984164702858",
+    "6021493696011180326", "6021679199943665107", "6028251384669805758", "6021503011795245594", "6021683482026057273",
+    "6021524963373098074", "6021527201051056472", "6021608144004716962", "6021653215391521041", "6021776476657949960",
+    "6021628944531331852", "6021562582991640411", "6021324839371938222", "6021836374271860084", "6021339012764015617",
+    "5783004749158685627", "5780556707994278784", "5782701868064971518", "5782913730211748145", "5780658176596646924",
+    "5780609587631627157", "5780781407798305236", "5780585368311045618", "5780929133198450198", "5782843400122276474",
+    "6037413112552889117", "6039679437945968043", "6039706547779541220", "5958808923203967006", "5958322028531423656",
+    "5958487981772773271", "5780382873487939194", "5780765881491529111", "5829994341371747297", "6037163978679916501",
+    "6034869770359152915", "6035078071978040145", "6037584997144074766", "6035097914726947384", "6034966544562265361",
+    "6037095632865335166", "6037502439282712379", "6037533659399985698", "6037502185879641476", "6028251384669805758",
+    "5814562360668461990", "5904551078094970096", "6039356525124787397", "6044381950393719705"
+]
+
+# لیست ایموجی‌های خون، شیلد و پیروزی (هیل کردن و محافظت)
+HEAL_EMOJIS = [
+    "5868727352879485936", "5868656266875769200", "5902141940744330810", "6028551194861899805", "6032699501909644905",
+    "5902324558458789912", "5904341217402952011", "5902143499817458993", "6041761200004406848", "6041737710828264758",
+    "6044320575311060640", "5814620926842511271", "5832631378277050554", "5807769659436440096", "5918119176135774001",
+    "5857150470396581154", "5899781869100076644", "6037400103096948939", "6039877646391711784"
+]
+
+# ==========================================
+# 🧩 سیستم خواندن و قالب‌بندی ایموجی‌ها
 # ==========================================
 async def get_emoji(btn_name: str, default_id: str):
     return await get_setting(f"emoji_{btn_name}", default_id)
@@ -62,6 +106,7 @@ def parse_emojis(text: str) -> str:
     return re.sub(r'(?<!["\'\d])(\d{15,22})(?!["\'\d])', r'<tg-emoji emoji-id="\1">✨</tg-emoji>', text)
 
 def e(eid: str, fallback="✨") -> str:
+    if not eid or not eid.strip().isdigit(): return fallback
     return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
 
 def get_progress_bar(current: int, total: int, length: int, fill_id: str, empty_id: str) -> str:
@@ -70,11 +115,8 @@ def get_progress_bar(current: int, total: int, length: int, fill_id: str, empty_
     if filled > length: filled = length
     if filled < 0: filled = 0
     empty = length - filled
-    
-    fill_tag = f'<tg-emoji emoji-id="{fill_id}">✨</tg-emoji>'
-    empty_tag = f'<tg-emoji emoji-id="{empty_id}">✨</tg-emoji>'
-    
-    return (fill_tag * filled) + (empty_tag * empty)
+    # استفاده از ایموجی ✨ مخفی به جای خط تیره تا تلگرام ارور ندهد
+    return (f'<tg-emoji emoji-id="{fill_id}">✨</tg-emoji>' * filled) + (f'<tg-emoji emoji-id="{empty_id}">✨</tg-emoji>' * empty)
 
 async def btn(text: str, cb_data: str, emoji_name: str, default_emoji: str):
     emoji_id = await get_emoji(emoji_name, default_emoji)
@@ -116,8 +158,8 @@ BATTLE_INTRO_TEXT = parse_emojis(
     'و با طلای به دست اومده، سلاح خودت رو ارتقا بده و حیوان نبرد (پِت) بخر تا تایم حملاتت رو کمتر کنی و برای مبارزه های وحشتناک بعدی اماده باشی! 6021608144004716962'
 )
 
-# ⚔️ تابع تولید میدان نبرد گاد و خفن 
-async def get_battle_arena_text(user_id: int):
+# ⚔️ تابع تولید میدان نبرد متحرک (گاد و خفن)
+async def get_battle_arena_text(user_id: int, log_msg: str = None):
     boss_hp = int(await get_setting(f"user_{user_id}_boss_hp", 15000))
     boss_max = 15000
     player_hp = int(await get_setting(f"user_{user_id}_hp", 80))
@@ -128,6 +170,12 @@ async def get_battle_arena_text(user_id: int):
     xp_max = 500
     coins = int(await get_setting(f"user_{user_id}_coins", 12500))
     gold = int(await get_setting(f"user_{user_id}_gold", 1))
+
+    char_id = await get_setting(f"user_{user_id}_char", "1")
+    char_name_raw = await get_setting(f"char{char_id}_name", "زولو")
+    char_name = re.sub(r'\d{15,22}', '', char_name_raw).strip()
+    char_emoji = await get_setting(f"char{char_id}_emoji", "5958487981772773271")
+    if not char_emoji: char_emoji = "5958487981772773271"
 
     EMOJI_RED_LINE = "5868376419691663420"
     EMOJI_BLACK_LINE = "5870807534389957123"
@@ -140,31 +188,24 @@ async def get_battle_arena_text(user_id: int):
     shield_bar = get_progress_bar(player_shield, shield_max, 5, EMOJI_BLUE_LINE, EMOJI_BLACK_LINE)
     xp_bar = get_progress_bar(player_xp, xp_max, 5, EMOJI_GREEN_LINE, EMOJI_BLACK_LINE)
 
-    ANIME_EMOJIS = [
-        "6037413112552889117", "6039679437945968043", "6039706547779541220", 
-        "5958808923203967006", "5958322028531423656", "5958487981772773271", 
-        "5780382873487939194", "5780765881491529111", "5783004749158685627", 
-        "5829994341371747297", "6037163978679916501", "6034869770359152915", 
-        "6035078071978040145", "6037584997144074766", "6035097914726947384", 
-        "6034966544562265361", "6037095632865335166", "6037502439282712379", 
-        "6037533659399985698", "6037502185879641476", "6028251384669805758", 
-        "5814562360668461990", "6044381950393719705", "5904551078094970096", 
-        "6039356525124787397"
-    ]
-    random_anime = random.choice(ANIME_EMOJIS)
+    if not log_msg:
+        START_EMOJIS = ["6044381950393719705", "6037533659399985698", "6037163978679916501"]
+        log_msg = f"{e(random.choice(START_EMOJIS))} <i>ﺩﺭﺍﺧﻮﺭ ﺑﺎ ﭼﺸﻤﺎﻧﯽ ﺧﻮﻧﯿﻦ ﺑﻪ ﺗﻮ ﺧﯿﺮﻩ ﺷﺪﻩ ﺍﺳﺖ...</i>"
 
+    # براکت‌های زاویه‌دار حذف و جایگزین با کروشه شدند تا ارور HTML نگیریم
     text = (
         f"{e('6021608144004716962')} <b>[ ﻣﯿﺪﺍﻥ ﻧﺒﺮﺩ : ﺗﺎﺗﺎﺭﻭﺱ ]</b> {e('6021608144004716962')}\n\n"
         f"{e('6044381950393719705')} <b>[ ﺩﺷﻤﻦ : ﺩﺭﺍﺧﻮﺭ ]</b>\n"
         f"{e('6037533659399985698')} HP: {boss_bar} <code>[{boss_hp//1000}K / {boss_max//1000}K]</code>\n"
         f"{e('6037163978679916501')} DMG: <code>100 - 300</code>\n\n"
-        f"{e('5958487981772773271')} <b>[ ﺷﻤﺎ : ﺯﻭﻟﻮ ]</b>\n"
+        f"{e(char_emoji)} <b>[ ﺷﻤﺎ : {char_name} ]</b>\n"
         f"{e('6034966544562265361')} HP: {hp_bar} <code>[{player_hp} / {player_max}]</code>\n"
         f"{e('6028551194861899805')} SHD: {shield_bar} <code>[{player_shield} / {shield_max}]</code>\n"
         f"{e('6039679437945968043')} XP: {xp_bar} <code>[{player_xp} / {xp_max}]</code>\n\n"
         f"{e('5958322028531423656')} ﺳﻼﺡ: <code>ﭼﺎﻗﻮ (L1)</code> | {e('5958808923203967006')} ﺁﺳﯿﺐ: <code>150</code>\n"
         f"{e('6032699501909644905')} ﺳﮑﻪ: <code>{coins:,}</code> | {e('5870839969982976188')} ﻃﻼ: <code>{gold}</code>\n\n"
-        f"{e(random_anime)} <i>ﺩﺭﺍﺧﻮﺭ ﺑﺎ ﭼﺸﻤﺎﻧﯽ ﺧﻮﻧﯿﻦ ﺑﻪ ﺗﻮ ﺧﯿﺮﻩ ﺷﺪﻩ ﺍﺳﺖ...</i>"
+        f"{e('6028251384669805758')} <b>ﮔﺰﺍﺭﺵ ﺯﻧﺪﻩ ﻧﺒﺮﺩ :</b>\n"
+        f"{log_msg}"
     )
     return text
 
@@ -605,7 +646,6 @@ async def get_raw_battle_intro_keyboard(user_id: int):
         [await btn("بازگشت", f"btn_backgamemenu_{user_id}", "بازگشت", "6041794945562451034")]
     ]
 
-# 🔴 آپدیت اسامی دکمه‌های شیشه‌ای میدان نبرد
 async def get_raw_battle_arena_keyboard(user_id: int):
     return [
         [await btn("حمله", f"btn_action_damage_{user_id}", "دمیج دادن", "5958322028531423656"),
@@ -649,12 +689,7 @@ async def trigger_tatarus_menu(message: types.Message):
         photo = await get_setting("photo_main")
         kb = await get_raw_main_keyboard(user_id)
         
-        payload = {
-            "chat_id": message.chat.id, "parse_mode": "HTML",
-            "reply_parameters": {"message_id": message.message_id},
-            "reply_markup": {"inline_keyboard": kb}
-        }
-        
+        payload = {"chat_id": message.chat.id, "parse_mode": "HTML", "reply_parameters": {"message_id": message.message_id}, "reply_markup": {"inline_keyboard": kb}}
         if photo:
             payload["photo"] = photo
             payload["caption"] = MAIN_TEXT
@@ -670,22 +705,8 @@ async def trigger_battle_arena_cmd(message: types.Message):
         try:
             text = await get_battle_arena_text(user_id)
             kb = await get_raw_battle_arena_keyboard(user_id)
-            
-            payload = {
-                "chat_id": message.chat.id, 
-                "text": text, 
-                "parse_mode": "HTML",
-                "reply_parameters": {"message_id": message.message_id},
-                "reply_markup": {"inline_keyboard": kb}
-            }
-            result = await send_raw_api("sendMessage", payload)
-            
-            if not result.get("ok"):
-                await send_raw_api("sendMessage", {
-                    "chat_id": message.chat.id,
-                    "text": f"⚠️ ارور تلگرام:\n`{result.get('description')}`",
-                    "parse_mode": "Markdown"
-                })
+            payload = {"chat_id": message.chat.id, "text": text, "parse_mode": "HTML", "reply_markup": {"inline_keyboard": kb}}
+            await send_raw_api("sendMessage", payload)
         except Exception as e:
             await send_raw_api("sendMessage", {"chat_id": message.chat.id, "text": f"خطای ربات: {e}"})
 
@@ -763,7 +784,6 @@ async def handle_all_buttons(callback: types.CallbackQuery):
         await transition_menu(callback, "photo_gamestart", BATTLE_INTRO_TEXT, kb)
         return await callback.answer()
 
-    # 🔴🔥 ویرایش و حفظ قطعی ریپلای روی کاربر (آپدیت جدید)
     elif action == "battle":
         try:
             text = await get_battle_arena_text(owner_id)
@@ -778,13 +798,11 @@ async def handle_all_buttons(callback: types.CallbackQuery):
                 "reply_markup": {"inline_keyboard": kb}
             }
 
-            # اگر پیام قبلی عکس‌دار بود، آن را پاک می‌کنیم ولی پیام جدید را مستقیماً روی پیام اصلی کاربر ریپلای می‌زنیم!
             if has_media:
                 await callback.message.delete()
                 if callback.message.reply_to_message:
                     payload["reply_parameters"] = {"message_id": callback.message.reply_to_message.message_id}
                 result = await send_raw_api("sendMessage", payload)
-            # اگر پیام قبلی عکس‌دار نبود (فقط متن بود)، خیلی راحت همان متن را ویرایش می‌کنیم تا ارتباط ریپلای اصلاً قطع نشود!
             else:
                 payload["message_id"] = callback.message.message_id
                 result = await send_raw_api("editMessageText", payload)
@@ -802,8 +820,94 @@ async def handle_all_buttons(callback: types.CallbackQuery):
             logging.error(f"Battle Load Error: {e}")
             return await callback.answer("⚠️ خطای کدنویسی رخ داد!", show_alert=True)
 
+    # 🔴🔥 سیستم قدرتمند چرخه روزگار (Battle Logic)
     elif action.startswith("action_"):
-        return await callback.answer("⏳ سیستم «چرخه روزگار» به زودی متصل می‌شود!", show_alert=True)
+        action_type = parts[2]
+        
+        boss_hp = int(await get_setting(f"user_{owner_id}_boss_hp", 15000))
+        player_hp = int(await get_setting(f"user_{owner_id}_hp", 80))
+        shield = int(await get_setting(f"user_{owner_id}_shield", 20))
+        coins = int(await get_setting(f"user_{owner_id}_coins", 12500))
+        xp = int(await get_setting(f"user_{owner_id}_xp", 150))
+        
+        log_msg = ""
+        if action_type == "damage":
+            dmg = random.randint(100, 200)
+            boss_hp -= dmg
+            boss_dmg = random.randint(10, 30)
+            if shield > 0: shield -= boss_dmg
+            else: player_hp -= boss_dmg
+            log_msg = f"{e(random.choice(ATTACK_EMOJIS))} <i>تو {dmg} دمیج زدی، اما دراخور با {boss_dmg} دمیج به تو حمله کرد!</i>"
+
+        elif action_type == "petdmg":
+            char_id = await get_setting(f"user_{owner_id}_char", "1")
+            has_pet = await get_setting(f"user_{owner_id}_pet_{char_id}") == "1"
+            if not has_pet:
+                return await callback.answer("⚠️ شما هنوز برای این کاراکتر حیوان نبرد نخریده‌اید!", show_alert=True)
+            dmg = random.randint(300, 500)
+            boss_hp -= dmg
+            log_msg = f"{e(random.choice(ATTACK_EMOJIS))} <i>حیوان تو به طرز وحشیانه‌ای {dmg} دمیج وارد کرد! دراخور گیج شده!</i>"
+
+        elif action_type == "power":
+            dmg = random.randint(200, 400)
+            boss_hp -= dmg
+            player_hp -= random.randint(20, 50)
+            log_msg = f"{e(random.choice(BOSS_EMOJIS))} <i>قدرت نمایی کردی و {dmg} دمیج زدی، اما خودت هم آسیب دیدی!</i>"
+
+        elif action_type == "shield":
+            if coins >= 1000 and shield < 50:
+                coins -= 1000
+                shield = min(50, shield + 20)
+                log_msg = f"{e(random.choice(HEAL_EMOJIS))} <i>با ۱۰۰۰ سکه سپر خود را شارژ کردی! دراخور عصبانی است...</i>"
+            else:
+                return await callback.answer("سکه کافی نیست یا سپرت پر است! (قیمت: ۱۰۰۰ سکه)", show_alert=True)
+
+        elif action_type == "buyhp":
+            if coins >= 500 and player_hp < 100:
+                coins -= 500
+                player_hp = min(100, player_hp + 30)
+                log_msg = f"{e(random.choice(HEAL_EMOJIS))} <i>معجون خون خریدی (+۳۰ HP)! دراخور پوزخند می‌زند...</i>"
+            else:
+                return await callback.answer("سکه کافی نیست یا خونت پر است! (قیمت: ۵۰۰ سکه)", show_alert=True)
+
+        if shield < 0:
+            player_hp += shield
+            shield = 0
+        
+        # بررسی زنده ماندن یا مردن
+        if player_hp <= 0:
+            player_hp = 100
+            coins = max(0, coins - 2000)
+            await set_setting(f"user_{owner_id}_hp", str(player_hp))
+            await set_setting(f"user_{owner_id}_coins", str(coins))
+            await callback.answer("💀 تو در میدان کشته شدی و ۲۰۰۰ سکه از دست دادی! دوباره تلاش کن...", show_alert=True)
+            kb = await get_raw_gamemenu_keyboard(owner_id)
+            await transition_menu(callback, "photo_gamemenu", GAME_MENU_TEXT, kb)
+            return
+            
+        if boss_hp <= 0:
+            boss_hp = 15000
+            coins += 50000
+            xp += 200
+            await set_setting(f"user_{owner_id}_boss_hp", str(boss_hp))
+            await set_setting(f"user_{owner_id}_coins", str(coins))
+            await set_setting(f"user_{owner_id}_xp", str(xp))
+            await callback.answer("🎉 دراخور را شکست دادی! ۵۰,۰۰۰ سکه و ۲۰۰ XP جایزه گرفتی!", show_alert=True)
+            kb = await get_raw_gamemenu_keyboard(owner_id)
+            await transition_menu(callback, "photo_gamemenu", GAME_MENU_TEXT, kb)
+            return
+
+        await set_setting(f"user_{owner_id}_boss_hp", str(boss_hp))
+        await set_setting(f"user_{owner_id}_hp", str(player_hp))
+        await set_setting(f"user_{owner_id}_shield", str(shield))
+        await set_setting(f"user_{owner_id}_coins", str(coins))
+        
+        text = await get_battle_arena_text(owner_id, log_msg)
+        kb = await get_raw_battle_arena_keyboard(owner_id)
+        
+        payload = {"chat_id": callback.message.chat.id, "message_id": callback.message.message_id, "text": text, "parse_mode": "HTML", "reply_markup": {"inline_keyboard": kb}}
+        await send_raw_api("editMessageText", payload)
+        return await callback.answer()
 
     elif action == "gameupg":
         kb = await get_raw_upgrade_keyboard(owner_id)
@@ -897,7 +1001,7 @@ async def main():
     await init_db()
     me = await bot.get_me()
     BOT_USERNAME = me.username
-    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) با حفظ ریپلای و چیدمان جدید روشن شد!")
+    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) با دیتابیس عظیم ایموجی‌ها و چرخه روزگار فعال شد!")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
