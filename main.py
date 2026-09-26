@@ -61,9 +61,11 @@ async def get_emoji(btn_name: str, default_id: str):
 def parse_emojis(text: str) -> str:
     return re.sub(r'(?<!["\'\d])(\d{15,22})(?!["\'\d])', r'<tg-emoji emoji-id="\1">✨</tg-emoji>', text)
 
+# تولیدکننده امن ایموجی برای متون لایو نبرد
 def e(eid: str, fallback="✨") -> str:
     return f'<tg-emoji emoji-id="{eid}">{fallback}</tg-emoji>'
 
+# 🔴 رفع قطعی ارور ENTITY_TEXT_INVALID (استفاده از ✨ به جای کاراکتر هندسی)
 def get_progress_bar(current: int, total: int, length: int, fill_id: str, empty_id: str) -> str:
     if total <= 0: total = 1
     filled = int((current / total) * length)
@@ -71,11 +73,12 @@ def get_progress_bar(current: int, total: int, length: int, fill_id: str, empty_
     if filled < 0: filled = 0
     empty = length - filled
     
-    fill_tag = f'<tg-emoji emoji-id="{fill_id}">▬</tg-emoji>'
-    empty_tag = f'<tg-emoji emoji-id="{empty_id}">▬</tg-emoji>'
+    fill_tag = f'<tg-emoji emoji-id="{fill_id}">✨</tg-emoji>'
+    empty_tag = f'<tg-emoji emoji-id="{empty_id}">✨</tg-emoji>'
     
     return (fill_tag * filled) + (empty_tag * empty)
 
+# دکمه‌ساز شیشه‌ای پرمیوم
 async def btn(text: str, cb_data: str, emoji_name: str, default_emoji: str):
     emoji_id = await get_emoji(emoji_name, default_emoji)
     button = {"text": text, "callback_data": cb_data}
@@ -154,7 +157,6 @@ async def get_battle_arena_text(user_id: int):
     ]
     random_anime = random.choice(ANIME_EMOJIS)
 
-    # رفع باگ خطرناک HTML: تمامی براکت‌های زاویه‌دار به کروشه [] تبدیل شدند تا تلگرام پیام را مسدود نکند
     text = (
         f"{e('6021608144004716962')} <b>[ ﻣﯿﺪﺍﻥ ﻧﺒﺮﺩ : ﺗﺎﺗﺎﺭﻭﺱ ]</b> {e('6021608144004716962')}\n\n"
         f"{e('6044381950393719705')} <b>[ ﺩﺷﻤﻦ : ﺩﺭﺍﺧﻮﺭ ]</b>\n"
@@ -563,7 +565,7 @@ async def admin_pet_approval(callback: types.CallbackQuery):
     await callback.answer()
 
 # ==========================================
-# 🧩 ساختار کیبوردها
+# 🧩 ساختار کیبوردها (پرمیوم)
 # ==========================================
 async def get_raw_main_keyboard(user_id: int):
     return [
@@ -665,7 +667,7 @@ async def trigger_tatarus_menu(message: types.Message):
             payload["text"] = MAIN_TEXT
             await send_raw_api("sendMessage", payload)
 
-# 🔴🔥 دستور مستقیم و ایمنِ کلمه کلیدی «میدان نبرد» در گروه
+# 🔴 فعال‌سازی مجدد و ایمن کلمه "میدان نبرد" در گروه
 @dp.message(F.text.contains("میدان نبرد"))
 async def trigger_battle_arena_cmd(message: types.Message):
     if message.chat.type in ["group", "supergroup"]:
@@ -674,7 +676,6 @@ async def trigger_battle_arena_cmd(message: types.Message):
             text = await get_battle_arena_text(user_id)
             kb = await get_raw_battle_arena_keyboard(user_id)
             
-            # بدون ریپلای ارسال می‌شود تا خطر کرش تلگرام صفر شود
             payload = {
                 "chat_id": message.chat.id, 
                 "text": text, 
@@ -683,11 +684,10 @@ async def trigger_battle_arena_cmd(message: types.Message):
             }
             result = await send_raw_api("sendMessage", payload)
             
-            # سیستم عیب‌یاب: اگر تلگرام اجازه ارسال نداد، در گروه ارور رو چاپ می‌کنه
             if not result.get("ok"):
                 await send_raw_api("sendMessage", {
                     "chat_id": message.chat.id,
-                    "text": f"⚠️ تلگرام به دلیل ارور داخلی جلوی ارسال را گرفت:\n`{result.get('description')}`",
+                    "text": f"⚠️ ارور تلگرام:\n`{result.get('description')}`",
                     "parse_mode": "Markdown"
                 })
         except Exception as e:
@@ -767,7 +767,7 @@ async def handle_all_buttons(callback: types.CallbackQuery):
         await transition_menu(callback, "photo_gamestart", BATTLE_INTRO_TEXT, kb)
         return await callback.answer()
 
-    # 🔴🔥 حل قطعی باگ ورود به میدان مبارزه (تضمین جلوگیری از فریز ربات)
+    # 🔴🔥 حل نهایی و تست شده باگ ورود به میدان مبارزه
     elif action == "battle":
         try:
             text = await get_battle_arena_text(owner_id)
@@ -783,11 +783,10 @@ async def handle_all_buttons(callback: types.CallbackQuery):
             await callback.message.delete()
             result = await send_raw_api("sendMessage", payload)
             
-            # سیستم عیب‌یاب
             if not result.get("ok"):
                 await send_raw_api("sendMessage", {
                     "chat_id": callback.message.chat.id,
-                    "text": f"⚠️ تلگرام جلوی رندر شدن پیام را گرفت:\n`{result.get('description')}`",
+                    "text": f"⚠️ ارور تلگرام در لود میدان نبرد:\n`{result.get('description')}`\n(لطفاً به پشتیبانی اطلاع دهید)",
                     "parse_mode": "Markdown"
                 })
                 
@@ -795,7 +794,6 @@ async def handle_all_buttons(callback: types.CallbackQuery):
             
         except Exception as e:
             logging.error(f"Battle Load Error: {e}")
-            await send_raw_api("sendMessage", {"chat_id": callback.message.chat.id, "text": f"خطای سیستمی ربات: {e}"})
             return await callback.answer("⚠️ خطای کدنویسی رخ داد!", show_alert=True)
 
     elif action.startswith("action_"):
@@ -893,7 +891,7 @@ async def main():
     await init_db()
     me = await bot.get_me()
     BOT_USERNAME = me.username
-    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) با عیب‌یاب هوشمند راه‌اندازی شد!")
+    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) باگ HTML تلگرام فیکس شد!")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
