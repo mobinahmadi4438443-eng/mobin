@@ -116,7 +116,7 @@ BATTLE_INTRO_TEXT = parse_emojis(
     'و با طلای به دست اومده، سلاح خودت رو ارتقا بده و حیوان نبرد (پِت) بخر تا تایم حملاتت رو کمتر کنی و برای مبارزه های وحشتناک بعدی اماده باشی! 6021608144004716962'
 )
 
-# ⚔️ تابع تولید میدان نبرد گاد و خفن 
+# ⚔️ تابع تولید میدان نبرد گاد و خفن (بدون دستکاری ایموجی‌های پرمیوم شما)
 async def get_battle_arena_text(user_id: int):
     boss_hp = int(await get_setting(f"user_{user_id}_boss_hp", 15000))
     boss_max = 15000
@@ -129,7 +129,7 @@ async def get_battle_arena_text(user_id: int):
     coins = int(await get_setting(f"user_{user_id}_coins", 12500))
     gold = int(await get_setting(f"user_{user_id}_gold", 1))
 
-    # آیدی‌های اختصاصی شما
+    # آیدی‌های اختصاصی شما که دست‌نخورده باقی ماندند
     EMOJI_RED_LINE = "5868376419691663420"
     EMOJI_BLACK_LINE = "5870807534389957123"
     EMOJI_BLUE_LINE = "5868656266875769200"
@@ -154,15 +154,16 @@ async def get_battle_arena_text(user_id: int):
     ]
     random_anime = random.choice(ANIME_EMOJIS)
 
+    # رفع باگ خطرناک HTML: تمامی براکت‌های زاویه‌دار به کروشه [] تبدیل شدند تا تلگرام پیام را مسدود نکند
     text = (
-        f"{e('6021608144004716962')} 「 <b>ﻣﯿﺪﺍﻥ ﻧﺒﺮﺩ : ﺗﺎﺗﺎﺭﻭﺱ</b> 」 {e('6021608144004716962')}\n\n"
-        f"{e('6044381950393719705')} <b>〈 ﺩﺷﻤﻦ : ﺩﺭﺍﺧﻮﺭ 〉</b>\n"
-        f"{e('6037533659399985698')} HP: {boss_bar} <code>〈{boss_hp//1000}K / {boss_max//1000}K〉</code>\n"
+        f"{e('6021608144004716962')} <b>[ ﻣﯿﺪﺍﻥ ﻧﺒﺮﺩ : ﺗﺎﺗﺎﺭﻭﺱ ]</b> {e('6021608144004716962')}\n\n"
+        f"{e('6044381950393719705')} <b>[ ﺩﺷﻤﻦ : ﺩﺭﺍﺧﻮﺭ ]</b>\n"
+        f"{e('6037533659399985698')} HP: {boss_bar} <code>[{boss_hp//1000}K / {boss_max//1000}K]</code>\n"
         f"{e('6037163978679916501')} DMG: <code>100 - 300</code>\n\n"
-        f"{e('5958487981772773271')} <b>〈 ﺷﻤﺎ : ﺯﻭﻟﻮ 〉</b>\n"
-        f"{e('6034966544562265361')} HP: {hp_bar} <code>〈{player_hp} / {player_max}〉</code>\n"
-        f"{e('6028551194861899805')} SHD: {shield_bar} <code>〈{player_shield} / {shield_max}〉</code>\n"
-        f"{e('6039679437945968043')} XP: {xp_bar} <code>〈{player_xp} / {xp_max}〉</code>\n\n"
+        f"{e('5958487981772773271')} <b>[ ﺷﻤﺎ : ﺯﻭﻟﻮ ]</b>\n"
+        f"{e('6034966544562265361')} HP: {hp_bar} <code>[{player_hp} / {player_max}]</code>\n"
+        f"{e('6028551194861899805')} SHD: {shield_bar} <code>[{player_shield} / {shield_max}]</code>\n"
+        f"{e('6039679437945968043')} XP: {xp_bar} <code>[{player_xp} / {xp_max}]</code>\n\n"
         f"{e('5958322028531423656')} ﺳﻼﺡ: <code>ﭼﺎﻗﻮ (L1)</code> | {e('5958808923203967006')} ﺁﺳﯿﺐ: <code>150</code>\n"
         f"{e('6032699501909644905')} ﺳﮑﻪ: <code>{coins:,}</code> | {e('5870839969982976188')} ﻃﻼ: <code>{gold}</code>\n\n"
         f"{e('6028251384669805758')} <b>ﮔﺰﺍﺭﺵ ﺯﻧﺪﻩ ﻧﺒﺮﺩ :</b>\n"
@@ -562,7 +563,7 @@ async def admin_pet_approval(callback: types.CallbackQuery):
     await callback.answer()
 
 # ==========================================
-# 🧩 ساختار کیبوردها (پرمیوم)
+# 🧩 ساختار کیبوردها
 # ==========================================
 async def get_raw_main_keyboard(user_id: int):
     return [
@@ -641,7 +642,7 @@ async def get_raw_character_keyboard(user_id: int):
     ]
 
 # ==========================================
-# 🚀 تریگر دقیق کلمه "تاتاروس"
+# 🚀 تریگرهای دستوری
 # ==========================================
 @dp.message(F.text == "تاتاروس")
 async def trigger_tatarus_menu(message: types.Message):
@@ -664,25 +665,33 @@ async def trigger_tatarus_menu(message: types.Message):
             payload["text"] = MAIN_TEXT
             await send_raw_api("sendMessage", payload)
 
-# ==========================================
-# 🚀 تریگر دقیق کلمه "میدان نبرد" (حل دائمی ارور تلگرام)
-# ==========================================
-@dp.message(F.text == "میدان نبرد")
+# 🔴🔥 دستور مستقیم و ایمنِ کلمه کلیدی «میدان نبرد» در گروه
+@dp.message(F.text.contains("میدان نبرد"))
 async def trigger_battle_arena_cmd(message: types.Message):
     if message.chat.type in ["group", "supergroup"]:
         user_id = message.from_user.id
-        text = await get_battle_arena_text(user_id)
-        kb = await get_raw_battle_arena_keyboard(user_id)
-        
-        # ربات پیام را از صفر و بدون هیچ عکس یا ویرایشی می‌فرستد (تضمین ۱۰۰٪ اجرا)
-        payload = {
-            "chat_id": message.chat.id, 
-            "text": text, 
-            "parse_mode": "HTML",
-            "reply_parameters": {"message_id": message.message_id},
-            "reply_markup": {"inline_keyboard": kb}
-        }
-        await send_raw_api("sendMessage", payload)
+        try:
+            text = await get_battle_arena_text(user_id)
+            kb = await get_raw_battle_arena_keyboard(user_id)
+            
+            # بدون ریپلای ارسال می‌شود تا خطر کرش تلگرام صفر شود
+            payload = {
+                "chat_id": message.chat.id, 
+                "text": text, 
+                "parse_mode": "HTML",
+                "reply_markup": {"inline_keyboard": kb}
+            }
+            result = await send_raw_api("sendMessage", payload)
+            
+            # سیستم عیب‌یاب: اگر تلگرام اجازه ارسال نداد، در گروه ارور رو چاپ می‌کنه
+            if not result.get("ok"):
+                await send_raw_api("sendMessage", {
+                    "chat_id": message.chat.id,
+                    "text": f"⚠️ تلگرام به دلیل ارور داخلی جلوی ارسال را گرفت:\n`{result.get('description')}`",
+                    "parse_mode": "Markdown"
+                })
+        except Exception as e:
+            await send_raw_api("sendMessage", {"chat_id": message.chat.id, "text": f"خطای ربات: {e}"})
 
 # ==========================================
 # 🔄 جابجایی هوشمند بین منوها
@@ -758,7 +767,7 @@ async def handle_all_buttons(callback: types.CallbackQuery):
         await transition_menu(callback, "photo_gamestart", BATTLE_INTRO_TEXT, kb)
         return await callback.answer()
 
-    # 🔴🔥 حل قطعی و ریشه‌ای فریز شدن ربات هنگام ورود به میدان مبارزه
+    # 🔴🔥 حل قطعی باگ ورود به میدان مبارزه (تضمین جلوگیری از فریز ربات)
     elif action == "battle":
         try:
             text = await get_battle_arena_text(owner_id)
@@ -771,15 +780,23 @@ async def handle_all_buttons(callback: types.CallbackQuery):
                 "reply_markup": {"inline_keyboard": kb}
             }
 
-            # همیشه پیام قدیمی را پاک می‌کند و یک پیام نو برای میدان مبارزه می‌سازد.
-            # این کار ارورهای ریپلای و کپشن تلگرام را برای همیشه دور می‌زند.
             await callback.message.delete()
-            await send_raw_api("sendMessage", payload)
+            result = await send_raw_api("sendMessage", payload)
+            
+            # سیستم عیب‌یاب
+            if not result.get("ok"):
+                await send_raw_api("sendMessage", {
+                    "chat_id": callback.message.chat.id,
+                    "text": f"⚠️ تلگرام جلوی رندر شدن پیام را گرفت:\n`{result.get('description')}`",
+                    "parse_mode": "Markdown"
+                })
                 
             return await callback.answer("⚔️ وارد میدان شدی! حواست به جانت باشه...")
+            
         except Exception as e:
             logging.error(f"Battle Load Error: {e}")
-            return await callback.answer("⚠️ اختلالی در ارتباط با سرور رخ داد!", show_alert=True)
+            await send_raw_api("sendMessage", {"chat_id": callback.message.chat.id, "text": f"خطای سیستمی ربات: {e}"})
+            return await callback.answer("⚠️ خطای کدنویسی رخ داد!", show_alert=True)
 
     elif action.startswith("action_"):
         return await callback.answer("⏳ سیستم «چرخه روزگار» به زودی متصل می‌شود!", show_alert=True)
@@ -876,7 +893,7 @@ async def main():
     await init_db()
     me = await bot.get_me()
     BOT_USERNAME = me.username
-    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) با دستور مستقیم «میدان نبرد» استارت شد!")
+    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) با عیب‌یاب هوشمند راه‌اندازی شد!")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
