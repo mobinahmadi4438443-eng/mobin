@@ -93,11 +93,21 @@ HEAL_EMOJIS = [
     "5857150470396581154", "5899781869100076644", "6037400103096948939", "6039877646391711784"
 ]
 
+# دیکشنری هوشمند برای ترجمه کلیدها به نام فارسی جذاب در پنل مدیریت
+TARGET_FA = {
+    "main": "منوی اصلی", "story": "اوپنینگ داستانی", "character": "انتخاب کاراکترها",
+    "gamemenu": "منوی داستانی", "gamestart": "پیش‌نبرد", "battle": "میدان نبرد (مدیا)",
+    "upgrade": "منوی ارتقا", "gamedaily": "جایزه روزانه",
+    "pet_1": "حیوان کاراکتر ۱", "pet_2": "حیوان کاراکتر ۲", "pet_3": "حیوان کاراکتر ۳", "pet_4": "حیوان کاراکتر ۴",
+    "weapon_knife": "چاقو", "weapon_sword": "شمشیر", "weapon_colt": "کُلت", "weapon_ak47": "کلاش",
+    "pet_text": "متن حیوانات", "bank_card_text": "شماره کارت"
+}
+
 async def get_emoji(btn_name: str, default_id: str):
     return await get_setting(f"emoji_{btn_name}", default_id)
 
 def parse_emojis(text: str) -> str:
-    return re.sub(r'(?<!["\'\d])(\d{15,22})(?!["\'\d])', r'<tg-emoji emoji-id="\1">✨</tg-emoji>', text)
+    return re.sub(r'(?<!["\'\d])(\d{18,22})(?!["\'\d])', r'<tg-emoji emoji-id="\1">✨</tg-emoji>', text)
 
 def e(eid: str, fallback="✨") -> str:
     if not eid or not eid.strip().isdigit(): return fallback
@@ -154,7 +164,6 @@ BATTLE_INTRO_TEXT = parse_emojis(
 WEAPONS_DMG = {"knife": 150, "sword": 300, "colt": 600, "ak47": 1200}
 WEAPONS_NAMES = {"knife": "ﭼﺎﻗﻮ (L1)", "sword": "ﺷﻤﺸﯿﺮ (L2)", "colt": "ﮐﻠﺖ (L3)", "ak47": "ﮐﻼﺵ (L4)"}
 
-# ⚔️ تابع تولید میدان نبرد متحرک (حذف براکت‌ها و متون اضافه)
 async def get_battle_arena_text(user_id: int, log_msg: str = None):
     boss_hp = int(await get_setting(f"user_{user_id}_boss_hp", 15000))
     boss_max = 15000
@@ -192,7 +201,6 @@ async def get_battle_arena_text(user_id: int, log_msg: str = None):
         START_EMOJIS = ["6044381950393719705", "6037533659399985698", "6037163978679916501"]
         log_msg = f"{e(random.choice(START_EMOJIS))} <i>ﺩﺭﺍﺧﻮﺭ ﺑﺎ ﭼﺸﻤﺎﻧﯽ ﺧﻮﻧﯿﻦ ﺑﻪ ﺗﻮ ﺧﯿﺮﻩ ﺷﺪﻩ ﺍﺳﺖ...</i>"
 
-    # حذف تمام براکت‌های اضافی و متون حاشیه‌ای طبق درخواست
     text = (
         f"{e('6021608144004716962')} <b>ﻣﯿﺪﺍﻥ ﻧﺒﺮﺩ : ﺗﺎﺗﺎﺭﻭﺱ</b> {e('6021608144004716962')}\n\n"
         f"{e('6044381950393719705')} <b>ﺩﺷﻤﻦ : ﺩﺭﺍﺧﻮﺭ</b>\n"
@@ -330,44 +338,51 @@ async def admin_weapons_menu(callback: types.CallbackQuery):
     b.adjust(2, 2, 1)
     await callback.message.edit_text("عکس کدام سلاح را می‌خواهید تنظیم کنید؟", reply_markup=b.as_markup())
 
+# 🔴 افزوده شدن دکمه بازگشت و نام فارسی هوشمند در پنل
 @dp.callback_query(F.data.startswith("adm_req_"))
 async def handle_admin_requests(callback: types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID: return
     req = callback.data.replace("adm_req_", "")
     
+    b = InlineKeyboardBuilder()
+    b.button(text="🔙 بازگشت (لغو)", callback_data="admin_reject")
+    
     if req.startswith("photo_"):
         target = req.replace("photo_", "")
+        fa_name = TARGET_FA.get(target, target)
         await state.set_state(AdminSetup.waiting_for_media)
         await state.update_data(target_menu=target, back_to="story" if target != "main" else "main")
-        await callback.message.edit_text("🎥 عکس، ویدیو یا گیف مورد نظر را ارسال نمایید:")
+        await callback.message.edit_text(f"🎥 عکس یا مدیای «{fa_name}» را ارسال کنید:", reply_markup=b.as_markup())
         
     elif req.startswith("text_"):
         target = req.replace("text_", "")
+        fa_name = TARGET_FA.get(target, target)
         await state.set_state(AdminSetup.waiting_for_text)
-        await state.update_data(target_setting=target)
-        await callback.message.edit_text("لطفاً متن جدید را ارسال نمایید:")
+        await state.update_data(target_setting=target, back_to="story")
+        await callback.message.edit_text(f"📝 متن جدید برای «{fa_name}» را ارسال کنید:", reply_markup=b.as_markup())
         
     elif req == "guidetext":
         await state.set_state(AdminSetup.guide_text_page)
-        await state.update_data(current_page=1)
+        await state.update_data(current_page=1, back_to="story")
         current_text = await get_setting("guide_text_1", "تنظیم نشده")
-        await callback.message.edit_text(f"متن فعلی صفحه اول:\n\n{current_text}\n\nمتن جدید را ارسال کنید:")
+        await callback.message.edit_text(f"متن فعلی صفحه اول:\n\n{current_text}\n\n📝 متن جدید را ارسال کنید:", reply_markup=b.as_markup())
         
     elif req == "guidephoto":
         await state.set_state(AdminSetup.guide_photo_page)
-        await state.update_data(current_page=1)
-        await callback.message.edit_text("📸 عکس راهنمای داستانی (صفحه 1) را ارسال کنید:")
+        await state.update_data(current_page=1, back_to="story")
+        await callback.message.edit_text("📸 عکس راهنمای داستانی (صفحه 1) را ارسال کنید:", reply_markup=b.as_markup())
         
     elif req == "charnames":
         await state.set_state(AdminSetup.waiting_for_char_names)
-        await state.update_data(current_char=1)
-        await callback.message.edit_text("تغییر اسم کاراکتر ها:\nاسم اولین کاراکتر را انتخاب کنید:")
+        await state.update_data(current_char=1, back_to="story")
+        await callback.message.edit_text("تغییر اسم کاراکترها:\n📝 اسم اولین کاراکتر را ارسال کنید:", reply_markup=b.as_markup())
         
     elif req == "emoji":
         await state.set_state(AdminSetup.waiting_for_emoji_btn_name)
-        await callback.message.edit_text("نام دکمه‌ای که می‌خواهید ایموجی آن تغییر کند را ارسال کنید (مثال: شروع):")
+        await state.update_data(back_to="story")
+        await callback.message.edit_text("نام دکمه‌ای که می‌خواهید ایموجی آن تغییر کند را ارسال کنید (مثال: شروع):", reply_markup=b.as_markup())
 
-# --- دریافت مقادیر FSM (پشتیبانی از عکس/ویدیو/گیف) ---
+# --- دریافت مقادیر FSM ---
 @dp.message(F.photo | F.video | F.animation, AdminSetup.waiting_for_media)
 async def receive_media(message: types.Message, state: FSMContext):
     if message.photo:
@@ -385,7 +400,7 @@ async def receive_media(message: types.Message, state: FSMContext):
     await state.update_data(temp_file_id=file_id, temp_media_type=m_type)
     b = InlineKeyboardBuilder()
     b.button(text="✅ بله", callback_data="admin_confirm_photo")
-    b.button(text="❌ خیر", callback_data="admin_reject")
+    b.button(text="❌ لغو و بازگشت", callback_data="admin_reject")
     await message.reply("آیا این فایل رسانه‌ای تایید است؟", reply_markup=b.as_markup())
 
 @dp.message(F.text, AdminSetup.waiting_for_text)
@@ -393,15 +408,20 @@ async def receive_text_input(message: types.Message, state: FSMContext):
     await state.update_data(temp_text=message.text)
     b = InlineKeyboardBuilder()
     b.button(text="✅ بله", callback_data="admin_confirm_text")
-    b.button(text="❌ خیر", callback_data="admin_reject")
+    b.button(text="❌ لغو و بازگشت", callback_data="admin_reject")
     parsed_text = parse_emojis(message.text)
-    await message.reply(f"آیا متن تایید است؟\n\n{parsed_text}", reply_markup=b.as_markup(), parse_mode="HTML")
+    try:
+        await message.reply(f"آیا متن تایید است؟\n\n{parsed_text}", reply_markup=b.as_markup(), parse_mode="HTML")
+    except Exception as e:
+        await message.reply(f"⚠️ متن شما دریافت شد اما پیش‌نمایش گرافیکی آن مسدود شد.\n\nآیا می‌خواهید ذخیره شود؟", reply_markup=b.as_markup())
 
 @dp.message(F.text, AdminSetup.waiting_for_emoji_btn_name)
 async def receive_emoji_btn_name(message: types.Message, state: FSMContext):
     await state.update_data(target_btn=message.text.strip())
     await state.set_state(AdminSetup.waiting_for_emoji_code)
-    await message.reply(f"کد ایموجی جدید برای دکمه «{message.text.strip()}» را ارسال کنید:")
+    b = InlineKeyboardBuilder()
+    b.button(text="🔙 لغو و بازگشت", callback_data="admin_reject")
+    await message.reply(f"کد ایموجی جدید برای دکمه «{message.text.strip()}» را ارسال کنید:", reply_markup=b.as_markup())
 
 @dp.message(F.text, AdminSetup.waiting_for_emoji_code)
 async def receive_emoji_code(message: types.Message, state: FSMContext):
@@ -411,7 +431,15 @@ async def receive_emoji_code(message: types.Message, state: FSMContext):
     await message.reply(f"✅ ایموجی دکمه {data['target_btn']} تغییر یافت.\n\nپنل مدیریت:", reply_markup=kb)
     await state.clear()
 
-# --- تایید یا رد عمومی ---
+# --- دکمه بازگشت سراسری ---
+@dp.callback_query(F.data == "admin_reject")
+async def reject_admin(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    back_to = data.get("back_to", "story")
+    kb = await get_admin_main_cat_kb() if back_to == "main" else await get_admin_story_cat_kb()
+    await callback.message.edit_text("❌ عملیات لغو شد و به منوی قبل بازگشتید.\n\nپنل مدیریت:", reply_markup=kb)
+    await state.clear()
+
 @dp.callback_query(F.data == "admin_confirm_photo")
 async def confirm_photo(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -420,7 +448,7 @@ async def confirm_photo(callback: types.CallbackQuery, state: FSMContext):
     await set_setting(f"type_{target}", data.get('temp_media_type', 'photo'))
     back_to = data.get("back_to", "story")
     kb = await get_admin_main_cat_kb() if back_to == "main" else await get_admin_story_cat_kb()
-    await callback.message.edit_text("✅ رسانه با موفقیت تغییر یافت!\n\nپنل مدیریت:", reply_markup=kb)
+    await callback.message.edit_text("✅ رسانه با موفقیت ذخیره شد!\n\nپنل مدیریت:", reply_markup=kb)
     await state.clear()
 
 @dp.callback_query(F.data == "admin_confirm_text")
@@ -431,19 +459,11 @@ async def confirm_text_action(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text("✅ متن با موفقیت تنظیم شد!\n\nپنل مدیریت:", reply_markup=kb)
     await state.clear()
 
-@dp.callback_query(F.data == "admin_reject")
-async def reject_admin(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    back_to = data.get("back_to", "story")
-    kb = await get_admin_main_cat_kb() if back_to == "main" else await get_admin_story_cat_kb()
-    await callback.message.edit_text("❌ عملیات لغو شد.\n\nپنل مدیریت:", reply_markup=kb)
-    await state.clear()
-
 # --- لوپ‌های راهنما و کاراکتر ---
 @dp.message(AdminSetup.waiting_for_char_names)
 async def receive_char_name(message: types.Message, state: FSMContext):
     raw_text = message.text
-    match = re.search(r'\b(\d{15,22})\b', raw_text)
+    match = re.search(r'(\d{15,22})', raw_text)
     if match:
         emoji_id = match.group(1)
         name = raw_text.replace(emoji_id, '').strip()
@@ -454,21 +474,21 @@ async def receive_char_name(message: types.Message, state: FSMContext):
     await state.update_data(temp_name=name, temp_emoji=emoji_id)
     b = InlineKeyboardBuilder()
     b.button(text="✅ بله", callback_data="char_confirm_yes")
-    b.button(text="❌ خیر", callback_data="char_confirm_no")
+    b.button(text="❌ لغو و بازگشت", callback_data="admin_reject")
     await message.reply(f"آیا این اسم تایید است؟\n\nنام: `{name}`", reply_markup=b.as_markup(), parse_mode="Markdown")
 
-@dp.callback_query(F.data.in_({"char_confirm_yes", "char_confirm_no"}))
+@dp.callback_query(F.data == "char_confirm_yes")
 async def process_char_name_confirm(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     current_char = data.get("current_char", 1)
     
-    if callback.data == "char_confirm_yes":
-        await set_setting(f"char{current_char}_name", data["temp_name"])
-        if data["temp_emoji"]: await set_setting(f"char{current_char}_emoji", data["temp_emoji"])
-        else: await set_setting(f"char{current_char}_emoji", "")
-        await callback.message.edit_text(f"✅ اسم کاراکتر {current_char} ذخیره شد.")
-    else:
-        await callback.message.edit_text(f"❌ ذخیره نشد.")
+    await set_setting(f"char{current_char}_name", data["temp_name"])
+    if data.get("temp_emoji"): 
+        await set_setting(f"char{current_char}_emoji", data["temp_emoji"])
+    else: 
+        await set_setting(f"char{current_char}_emoji", "")
+        
+    await callback.message.edit_text(f"✅ اسم کاراکتر {current_char} ذخیره شد.")
         
     next_char = current_char + 1
     if next_char > 4:
@@ -477,14 +497,16 @@ async def process_char_name_confirm(callback: types.CallbackQuery, state: FSMCon
         await state.clear()
     else:
         await state.update_data(current_char=next_char)
-        await callback.message.answer(f"حالا اسم کاراکتر {next_char} را ارسال کنید:")
+        b = InlineKeyboardBuilder()
+        b.button(text="🔙 لغو و بازگشت", callback_data="admin_reject")
+        await callback.message.answer(f"حالا اسم کاراکتر {next_char} را ارسال کنید:", reply_markup=b.as_markup())
 
 @dp.message(AdminSetup.guide_text_page)
 async def receive_guide_text(message: types.Message, state: FSMContext):
     await state.update_data(temp_text=message.text)
     b = InlineKeyboardBuilder()
     b.button(text="✅ بله", callback_data="guide_txt_yes")
-    b.button(text="❌ خیر", callback_data="admin_reject")
+    b.button(text="❌ لغو و بازگشت", callback_data="admin_reject")
     await message.reply("آیا متن تایید است؟", reply_markup=b.as_markup())
 
 @dp.callback_query(F.data == "guide_txt_yes")
@@ -496,14 +518,16 @@ async def confirm_guide_text(callback: types.CallbackQuery, state: FSMContext):
     
     b = InlineKeyboardBuilder()
     b.button(text="✅ بله", callback_data="guide_next_page_yes")
-    b.button(text="❌ خیر", callback_data="guide_next_page_no")
+    b.button(text="❌ خیر و اتمام", callback_data="guide_next_page_no")
     await callback.message.edit_text("صفحه بعد رو میخواهید اضافه کنید یا نه؟", reply_markup=b.as_markup())
 
 @dp.callback_query(F.data == "guide_next_page_yes")
 async def next_page_guide_text(callback: types.CallbackQuery, state: FSMContext):
     next_page = (await state.get_data()).get("current_page", 1) + 1
     await state.update_data(current_page=next_page)
-    await callback.message.edit_text(f"متن جدید برای صفحه {next_page} را ارسال کنید:")
+    b = InlineKeyboardBuilder()
+    b.button(text="🔙 لغو و بازگشت", callback_data="admin_reject")
+    await callback.message.edit_text(f"متن جدید برای صفحه {next_page} را ارسال کنید:", reply_markup=b.as_markup())
 
 @dp.callback_query(F.data == "guide_next_page_no")
 async def end_page_guide_text(callback: types.CallbackQuery, state: FSMContext):
@@ -516,7 +540,7 @@ async def receive_guide_photo(message: types.Message, state: FSMContext):
     await state.update_data(temp_file_id=message.photo[-1].file_id)
     b = InlineKeyboardBuilder()
     b.button(text="✅ بله", callback_data="guide_photo_yes")
-    b.button(text="❌ خیر", callback_data="admin_reject")
+    b.button(text="❌ لغو و بازگشت", callback_data="admin_reject")
     await message.reply("آیا این عکس تایید است؟", reply_markup=b.as_markup())
 
 @dp.callback_query(F.data == "guide_photo_yes")
@@ -529,7 +553,9 @@ async def confirm_guide_photo(callback: types.CallbackQuery, state: FSMContext):
     if page < total_pages:
         next_page = page + 1
         await state.update_data(current_page=next_page)
-        await callback.message.edit_text(f"✅ عکس صفحه {page} ذخیره شد.\n📸 عکس صفحه {next_page} را ارسال کنید:")
+        b = InlineKeyboardBuilder()
+        b.button(text="🔙 لغو و بازگشت", callback_data="admin_reject")
+        await callback.message.edit_text(f"✅ عکس صفحه {page} ذخیره شد.\n📸 عکس صفحه {next_page} را ارسال کنید:", reply_markup=b.as_markup())
     else:
         kb = await get_admin_story_cat_kb()
         await callback.message.edit_text("✅ عکس تمامی صفحات راهنما ذخیره شد.\n\nپنل مدیریت:", reply_markup=kb)
@@ -736,7 +762,6 @@ async def trigger_battle_arena_cmd(message: types.Message):
             target_photo = await get_setting("photo_battle")
             target_type = await get_setting("type_battle", "photo")
             
-            # ارسال با ریپلای مستقیم روی پیام کاربر
             payload = {
                 "chat_id": message.chat.id, 
                 "parse_mode": "HTML",
@@ -747,26 +772,25 @@ async def trigger_battle_arena_cmd(message: types.Message):
             if target_photo:
                 payload["caption"] = text
                 if target_type == "video":
+                    payload["video"] = target_photo
                     result = await send_raw_api("sendVideo", payload)
                 elif target_type == "animation":
+                    payload["animation"] = target_photo
                     result = await send_raw_api("sendAnimation", payload)
                 else:
+                    payload["photo"] = target_photo
                     result = await send_raw_api("sendPhoto", payload)
             else:
                 payload["text"] = text
                 result = await send_raw_api("sendMessage", payload)
                 
             if not result.get("ok"):
-                await send_raw_api("sendMessage", {
-                    "chat_id": message.chat.id,
-                    "text": f"⚠️ ارور تلگرام:\n`{result.get('description')}`",
-                    "parse_mode": "Markdown"
-                })
+                await send_raw_api("sendMessage", {"chat_id": message.chat.id, "text": f"⚠️ ارور تلگرام:\n`{result.get('description')}`", "parse_mode": "Markdown"})
         except Exception as e:
             await send_raw_api("sendMessage", {"chat_id": message.chat.id, "text": f"خطای ربات: {e}"})
 
 # ==========================================
-# 🔄 جابجایی هوشمند بین منوها (پشتیبانی از گیف، ویدیو و حفظ ریپلای)
+# 🔄 جابجایی هوشمند بین منوها (حفظ ریپلای در ویرایش)
 # ==========================================
 async def transition_menu(callback: types.CallbackQuery, photo_key: str, text: str, keyboard: list):
     target_media = await get_setting(photo_key)
@@ -782,7 +806,6 @@ async def transition_menu(callback: types.CallbackQuery, photo_key: str, text: s
     
     if target_media:
         if has_media:
-            # ویرایش زنده (لایو) رسانه: پیام پاک نمی‌شود و ریپلای حفظ می‌شود!
             payload = {"chat_id": chat_id, "message_id": msg_id, "media": {"type": target_type, "media": target_media, "caption": text, "parse_mode": "HTML"}, "reply_markup": {"inline_keyboard": keyboard}}
             await send_raw_api("editMessageMedia", payload)
         else:
@@ -809,7 +832,7 @@ async def transition_menu(callback: types.CallbackQuery, photo_key: str, text: s
             await send_raw_api("sendMessage", payload)
 
 # ==========================================
-# 🎛 هندلرهای اصلی
+# 🎛 هندلرهای دکمه‌های شیشه‌ای کاربری
 # ==========================================
 @dp.callback_query(F.data.startswith("btn_"))
 async def handle_all_buttons(callback: types.CallbackQuery):
@@ -850,17 +873,12 @@ async def handle_all_buttons(callback: types.CallbackQuery):
         await transition_menu(callback, "photo_gamestart", BATTLE_INTRO_TEXT, kb)
         return await callback.answer()
 
-    # 🔴 ورود به میدان نبرد با استفاده از سیستم ترنزیشن هوشمند (برای حفظ ریپلای)
     elif action == "battle":
         try:
             text = await get_battle_arena_text(owner_id)
             kb = await get_raw_battle_arena_keyboard(owner_id)
-            
-            # ارسال با تابع هوشمند که خودش ریپلای و مدیا را مدیریت می‌کند
             await transition_menu(callback, "photo_battle", text, kb)
-                
             return await callback.answer("⚔️ وارد میدان شدی! حواست به جانت باشه...")
-            
         except Exception as e:
             logging.error(f"Battle Load Error: {e}")
             return await callback.answer("⚠️ خطای کدنویسی رخ داد!", show_alert=True)
@@ -954,7 +972,6 @@ async def handle_all_buttons(callback: types.CallbackQuery):
         await set_setting(f"user_{owner_id}_shield", str(shield))
         await set_setting(f"user_{owner_id}_coins", str(coins))
         
-        # بروزرسانی صفحه نبرد با ویرایش زنده (حفظ ریپلای)
         text = await get_battle_arena_text(owner_id, log_msg)
         kb = await get_raw_battle_arena_keyboard(owner_id)
         await transition_menu(callback, "photo_battle", text, kb)
@@ -1052,7 +1069,7 @@ async def main():
     await init_db()
     me = await bot.get_me()
     BOT_USERNAME = me.username
-    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) با پشتیبانی از مدیا و ویرایش هوشمند راه‌اندازی شد!")
+    print(f"🤖 ربات تاتاروس ({BOT_USERNAME}) با پنل ادمین فوق‌پیشرفته راه‌اندازی شد!")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
