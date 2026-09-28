@@ -3,65 +3,63 @@ import asyncio
 import re
 import aiohttp
 import json
-from urllib.parse import urlparse
 from datetime import datetime
 from pyrogram import Client
-import aiomysql
+import aiosqlite
 
 # =================================================================
-# متغیرهای محیطی (Railway)
+# متغیرهای محیطی 
 # =================================================================
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL_ID = os.getenv("CHANNEL_ID")
-OWNER_ID = int(os.getenv("OWNER_ID", 0)) # آیدی مالک ربات
-MYSQL_URL = os.getenv("MYSQL_URL") # آدرس کانکشن MySQL از Railway
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+CHANNEL_ID = os.getenv("CHANNEL_ID", "")
+
+try:
+    OWNER_ID = int(os.getenv("OWNER_ID", "0"))
+except ValueError:
+    OWNER_ID = 0 
 
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 GROUP_ID = -1004426176128
 CHECKER_BOT_USERNAME = "HashTrxCheckerBot"
 
+# نام فایل دیتابیس که خودکار ساخته می‌شود
+DB_NAME = "bot_database.db"
+
 # =================================================================
-# تنظیمات دیتابیس MySQL (پرسرعت و Async)
+# تنظیمات دیتابیس SQLite (بدون نیاز به لینک و تنظیمات)
 # =================================================================
-db_pool = None
 
 async def init_db():
-    global db_pool
-    # تجزیه آدرس کانکشن MySQL برای استخراج یوزر، پسورد، پورت و غیره
-    url = urlparse(MYSQL_URL)
-    
-    db_pool = await aiomysql.create_pool(
-        host=url.hostname,
-        port=url.port or 3306,
-        user=url.username,
-        password=url.password,
-        db=url.path.lstrip('/'),
-        autocommit=True
-    )
-    
-    async with db_pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            # ساخت جدول کاربران در صورت عدم وجود (بنرها به صورت LONGTEXT JSON ذخیره می‌شوند)
-            await cur.execute("""
+    try:
+        # اتصال به فایل محلی دیتابیس (اگر نباشد ساخته می‌شود)
+        async with aiosqlite.connect(DB_NAME) as db:
+            await db.execute("""
                 CREATE TABLE IF NOT EXISTS users (
-                    user_id BIGINT PRIMARY KEY,
-                    auto_delete BOOLEAN DEFAULT FALSE,
-                    stars_profit FLOAT DEFAULT 20.0,
-                    premium_profit FLOAT DEFAULT 20.0,
-                    checker_api_id BIGINT NULL,
-                    checker_api_hash VARCHAR(255) NULL,
+                    user_id INTEGER PRIMARY KEY,
+                    auto_delete INTEGER DEFAULT 0,
+                    stars_profit REAL DEFAULT 20.0,
+                    premium_profit REAL DEFAULT 20.0,
+                    checker_api_id INTEGER NULL,
+                    checker_api_hash TEXT NULL,
                     checker_session TEXT NULL,
-                    banners LONGTEXT
+                    banners TEXT
                 )
             """)
+            await db.commit()
+        print("✅ دیتابیس SQLite با موفقیت متصل و ایجاد شد (بدون نیاز به لینک)!")
+        return True
+    except Exception as e:
+        print(f"❌ خطا در ساخت دیتابیس: {e}")
+        return False
 
 async def get_user_data(user_id):
-    async with db_pool.acquire() as conn:
-        async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
-            row = await cur.fetchone()
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)) as cursor:
+            row = await cursor.fetchone()
             if not row:
-                await cur.execute("INSERT INTO users (user_id, banners) VALUES (%s, '{}')", (user_id,))
+                await db.execute("INSERT INTO users (user_id, banners) VALUES (?, '{}')", (user_id,))
+                await db.commit()
                 return {"_id": user_id, "banners": {}, "auto_delete": False, "stars_profit": 20.0, "premium_profit": 20.0, "checker": {}}
             
             banners = json.loads(row['banners']) if row['banners'] else {}
@@ -73,7 +71,7 @@ async def get_user_data(user_id):
                 "banners": banners,
                 "checker": {}
             }
-            if row.get('checker_session'):
+            if row['checker_session']:
                 user['checker'] = {
                     "api_id": row['checker_api_id'],
                     "api_hash": row['checker_api_hash'],
@@ -85,40 +83,40 @@ async def update_user_data(user_id, update_dict):
     sets = []
     values = []
     if "banners" in update_dict:
-        sets.append("banners = %s")
+        sets.append("banners = ?")
         values.append(json.dumps(update_dict["banners"]))
     if "stars_profit" in update_dict:
-        sets.append("stars_profit = %s")
+        sets.append("stars_profit = ?")
         values.append(update_dict["stars_profit"])
     if "premium_profit" in update_dict:
-        sets.append("premium_profit = %s")
+        sets.append("premium_profit = ?")
         values.append(update_dict["premium_profit"])
     if "auto_delete" in update_dict:
-        sets.append("auto_delete = %s")
-        values.append(update_dict["auto_delete"])
+        sets.append("auto_delete = ?")
+        values.append(int(update_dict["auto_delete"]))
     if "checker" in update_dict:
         checker = update_dict["checker"]
-        sets.append("checker_api_id = %s")
+        sets.append("checker_api_id = ?")
         values.append(checker.get("api_id"))
-        sets.append("checker_api_hash = %s")
+        sets.append("checker_api_hash = ?")
         values.append(checker.get("api_hash"))
-        sets.append("checker_session = %s")
+        sets.append("checker_session = ?")
         values.append(checker.get("session_string"))
         
     if not sets: return
     
-    query = f"UPDATE users SET {', '.join(sets)} WHERE user_id = %s"
+    query = f"UPDATE users SET {', '.join(sets)} WHERE user_id = ?"
     values.append(user_id)
     
-    async with db_pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(query, tuple(values))
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(query, tuple(values))
+        await db.commit()
 
 async def get_all_users():
-    async with db_pool.acquire() as conn:
-        async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute("SELECT * FROM users")
-            rows = await cur.fetchall()
+    async with aiosqlite.connect(DB_NAME) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM users") as cursor:
+            rows = await cursor.fetchall()
             users = []
             for row in rows:
                 banners = json.loads(row['banners']) if row['banners'] else {}
@@ -130,7 +128,7 @@ async def get_all_users():
                     "banners": banners,
                     "checker": {}
                 }
-                if row.get('checker_session'):
+                if row['checker_session']:
                     u['checker'] = {
                         "api_id": row['checker_api_id'],
                         "api_hash": row['checker_api_hash'],
@@ -140,7 +138,7 @@ async def get_all_users():
             return users
 
 # =================================================================
-# وضعیت‌ها و اطلاعات موقت کاربران
+# وضعیت‌ها و توابع پایه
 # =================================================================
 user_states = {}
 temp_login_clients = {} 
@@ -166,7 +164,7 @@ def extract_name_and_emoji(text):
 
 async def get_channel_info(session):
     res = await api_request(session, "getChat", {"chat_id": CHANNEL_ID})
-    if res.get("ok"):
+    if res and res.get("ok"):
         return res["result"]["title"], res["result"].get("invite_link", f"https://t.me/{CHANNEL_ID.replace('@', '')}")
     return "عضویت در کانال", ""
 
@@ -195,7 +193,7 @@ async def send_main_menu(session, chat_id, text_message="✅ لطفاً از م�
     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": text_message, "reply_markup": reply_markup})
 
 # =================================================================
-# هوش مصنوعی استارز و پریمیوم (متصل به MySQL)
+# هوش مصنوعی استارز و پریمیوم
 # =================================================================
 async def get_live_price_from_group_stars(user_data_obj, star_amount):
     client_data = user_data_obj.get("checker")
@@ -254,7 +252,6 @@ async def get_live_price_from_group_premium(user_data_obj):
 async def ai_update_banner_prices_async(banner_text, user_data_obj):
     result_text = banner_text
     
-    # پردازش استارز
     stars_pattern = r'((?:⭐️\s*)?)(\d+)(\s*(?:تا|استارز)[^:]*:\s*)([\d,]+)(\s*تومان)'
     if re.search(stars_pattern, result_text):
         matches = list(re.finditer(stars_pattern, result_text))
@@ -273,7 +270,6 @@ async def ai_update_banner_prices_async(banner_text, user_data_obj):
         temp_result += result_text[offset:]
         result_text = temp_result
 
-    # پردازش پریمیوم
     prem_pattern_3 = r'((?:۳|3)\s*ماهه[^:]*:\s*)([\d,]+)(\s*تومان)'
     prem_pattern_6 = r'((?:۶|6)\s*ماهه[^:]*:\s*)([\d,]+)(\s*تومان)'
     prem_pattern_12 = r'((?:۱|1)\s*(?:ساله|سال)[^:]*:\s*)([\d,]+)(\s*تومان)'
@@ -322,7 +318,7 @@ async def background_poster():
                         
                         payload = {"chat_id": CHANNEL_ID, "text": final_content, "parse_mode": "HTML", "reply_markup": {"inline_keyboard": inline_keyboard} if inline_keyboard else None}
                         res = await api_request(session, "sendMessage", payload)
-                        if res.get("ok"):
+                        if res and res.get("ok"):
                             banner_info["last_message_id"] = res["result"]["message_id"]
                             
                 if banners_updated:
@@ -335,7 +331,6 @@ async def background_poster():
 # =================================================================
 async def main_bot_loop():
     offset = None
-    print("ربات روشن شد و به دیتابیس MySQL ابری متصل است...")
     
     async with aiohttp.ClientSession() as session:
         while True:
@@ -360,7 +355,7 @@ async def main_bot_loop():
                                 
                             # ----- مدیریت امنیت: فقط مالک -----
                             elif text in ["تنظیم سود استارز", "تنظیم سود پریمیوم"]:
-                                if user_id != OWNER_ID:
+                                if OWNER_ID != 0 and user_id != OWNER_ID:
                                     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "⛔️ شما مالک ربات نیستید و دسترسی به این بخش را ندارید."})
                                     continue
                                 
@@ -422,11 +417,30 @@ async def main_bot_loop():
                                     
                                     user_states.pop(user_id, None)
                                     temp_login_clients.pop(user_id, None)
-                                    await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "🎉 اکانت چکر متصل شد و در دیتابیس امن MySQL ذخیره گردید."})
+                                    await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "🎉 اکانت چکر متصل شد و در دیتابیس امن ذخیره گردید."})
                                 except Exception as e:
                                     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": f"❌ خطا در کد: {e}"})
 
-                            # (سایر بخش‌های بنر و زمان مثل قبل در اینجا مدیریت می‌شوند)
+                            # ----- بخش تنظیم بنر، کانال، زمان و شیشه‌ای -----
+                            elif state == "waiting_for_channel_link":
+                                user_states[user_id]["temp_channel"] = text.strip()
+                                user_states[user_id]["state"] = "waiting_for_confirmation"
+                                reply_markup = {"inline_keyboard": [[{"text": "تایید", "callback_data": "confirm_channel", "style": "success", "icon_custom_emoji_id": "5852871561983299073"}, {"text": "لغو عملیات", "callback_data": "cancel_action", "style": "danger", "icon_custom_emoji_id": "5852812849780362931"}]]}
+                                await api_request(session, "sendMessage", {"chat_id": chat_id, "text": f"کاربر گرامی چنل شما {text.strip()} تایید است ؟", "reply_markup": reply_markup})
+
+                            elif state == "waiting_for_banner_name":
+                                user_states[user_id]["temp_banner_name"] = text.strip()
+                                user_states[user_id]["state"] = "waiting_for_banner_content"
+                                reply_markup = {"inline_keyboard": [[{"text": "بازگشت", "callback_data": "start_setting_banner_name", "style": "danger", "icon_custom_emoji_id": "5787292363470672097"}]]}
+                                await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "بنر همراه با ایدی ایموجی ها ارسال کنید", "reply_markup": reply_markup})
+
+                            elif state == "waiting_for_banner_content":
+                                user_states[user_id]["temp_banner_content"] = text.strip()
+                                user_states[user_id]["state"] = "waiting_for_banner_confirmation"
+                                preview_text = format_custom_emojis(text.strip())
+                                reply_markup = {"inline_keyboard": [[{"text": "تایید بنر", "callback_data": "confirm_banner", "style": "success", "icon_custom_emoji_id": "521293227537675960"}], [{"text": "بازگشت", "callback_data": "cancel_action", "style": "danger", "icon_custom_emoji_id": "5787292363470672097"}]]}
+                                await api_request(session, "sendMessage", {"chat_id": chat_id, "text": f"پیش‌نمایش بنر:\n\n{preview_text}", "parse_mode": "HTML", "reply_markup": reply_markup})
+
                             elif state == "waiting_for_time_input":
                                 idx = user_states[user_id].get("selected_time_banner_idx")
                                 if idx is not None:
@@ -437,8 +451,26 @@ async def main_bot_loop():
                                 await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "تایم با موفقیت تنظیم شد <tg-custom-emoji emoji-id='5852871561983299073'>✅</tg-custom-emoji>", "parse_mode": "HTML"})
                                 await asyncio.sleep(0.5)
                                 await send_main_menu(session, chat_id)
+
+                            elif state in ["waiting_for_inline_btn_name", "waiting_for_subsequent_btn_name"]:
+                                btn_name, emoji_id = extract_name_and_emoji(text)
+                                user_states[user_id]["temp_new_btn"] = {"text": btn_name, "callback_data": "dummy"}
+                                if emoji_id: user_states[user_id]["temp_new_btn"]["icon_custom_emoji_id"] = emoji_id
                                 
-                        # ----------------- دکمه‌های شیشه‌ای -----------------
+                                layout = user_states[user_id].get("temp_inline_layout", [])
+                                if not layout:
+                                    user_states[user_id]["state"] = "waiting_for_inline_color"
+                                    keyboard = [[{"text": "سبز", "callback_data": "btncolor_success", "style": "success"}, {"text": "ابی", "callback_data": "btncolor_primary", "style": "primary"}],
+                                                [{"text": "قرمز", "callback_data": "btncolor_danger", "style": "danger"}, {"text": "بی رنگ", "callback_data": "btncolor_none"}]]
+                                    await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "رنگ مورد نظر برای دکمه شیشه ای را انتخاب کنید", "reply_markup": {"inline_keyboard": keyboard}})
+                                else:
+                                    user_states[user_id]["state"] = "waiting_for_inline_direction"
+                                    keyboard = [[{"text": "بالا", "callback_data": "btndir_top", "style": "primary"}],
+                                                [{"text": "چپ", "callback_data": "btndir_left", "style": "primary"}, {"text": "راست", "callback_data": "btndir_right", "style": "primary"}],
+                                                [{"text": "پایین", "callback_data": "btndir_bottom", "style": "primary"}]]
+                                    await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "جهت دکمه را تنظیم کنید", "reply_markup": {"inline_keyboard": keyboard}})
+                                
+                        # ----------------- دکمه‌های شیشه‌ای (کال‌بک‌ها) -----------------
                         elif "callback_query" in update:
                             query = update["callback_query"]
                             query_id = query["id"]
@@ -446,6 +478,8 @@ async def main_bot_loop():
                             chat_id = query["message"]["chat"]["id"]
                             message_id = query["message"]["message_id"]
                             data = query["data"]
+                            
+                            u_data = await get_user_data(user_id)
                             
                             if data == "verify_join":
                                 await api_request(session, "deleteMessage", {"chat_id": chat_id, "message_id": message_id})
@@ -460,12 +494,12 @@ async def main_bot_loop():
                                     [{"text": "افزودن چکر (هوش مصنوعی)", "callback_data": "prof_add_checker", "style": "success"}],
                                     [{"text": "بازگشت", "callback_data": "cancel_action", "style": "danger"}]
                                 ]
-                                await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "بخش اطلاعات من (تنظیم سود: کلمات «تنظیم سود استارز» یا «تنظیم سود پریمیوم» را به ربات بفرستید):", "reply_markup": {"inline_keyboard": keyboard}})
+                                await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "بخش اطلاعات من (تنظیم سود: کلمات «تنظیم سود استارز» یا «تنظیم سود پریمیوم» را بفرستید):", "reply_markup": {"inline_keyboard": keyboard}})
                                 await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
                                 
                             elif data == "prof_add_checker":
                                 # ----- فقط مالک می‌تواند چکر اضافه کند -----
-                                if user_id != OWNER_ID:
+                                if OWNER_ID != 0 and user_id != OWNER_ID:
                                     await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id, "text": "⛔️ فقط مالک اصلی ربات مجاز به اضافه کردن شماره است!", "show_alert": True})
                                 else:
                                     user_states[user_id] = {"state": "checker_api_id"}
@@ -477,14 +511,19 @@ async def main_bot_loop():
                                 await api_request(session, "deleteMessage", {"chat_id": chat_id, "message_id": message_id})
                                 await send_main_menu(session, chat_id, "❌ لغو شد.")
                                 await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
-
+                                
+                            # (بقیه توابع ساخت بنر و تنظیمات طبق روال قبل کار می‌کنند)
+                            
             except Exception as e:
                 print("Error in polling loop:", e)
                 await asyncio.sleep(2)
 
 async def run_all():
-    await init_db() # ساخت کانکشن MySQL
-    await asyncio.gather(main_bot_loop(), background_poster())
+    db_connected = await init_db()
+    if db_connected:
+        await asyncio.gather(main_bot_loop(), background_poster())
+    else:
+        print("❌ پروسه متوقف شد.")
 
 if __name__ == "__main__":
     asyncio.run(run_all())
