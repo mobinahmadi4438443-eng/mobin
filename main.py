@@ -4,6 +4,7 @@ import re
 import aiohttp
 import json
 import time
+import uuid
 from datetime import datetime
 from pyrogram import Client
 import aiosqlite
@@ -12,7 +13,7 @@ import aiosqlite
 # ⚙️ متغیرهای محیطی
 # =================================================================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-CHANNEL_ID = os.getenv("CHANNEL_ID", "").strip() # به عنوان کانال پیش‌فرض پشتیبان
+CHANNEL_ID = os.getenv("CHANNEL_ID", "").strip()
 
 try:
     OWNER_ID = int(os.getenv("OWNER_ID", "0"))
@@ -25,7 +26,7 @@ CHECKER_BOT_USERNAME = "HashTrxCheckerBot"
 DB_NAME = "bot_database.db"
 
 # =================================================================
-# 🗄 دیتابیس SQLite (اضافه شدن لیست چنل‌ها)
+# 🗄 دیتابیس SQLite
 # =================================================================
 async def init_db():
     try:
@@ -39,15 +40,9 @@ async def init_db():
                     checker_api_id INTEGER NULL,
                     checker_api_hash TEXT NULL,
                     checker_session TEXT NULL,
-                    banners TEXT,
-                    channels TEXT
+                    banners TEXT
                 )
             """)
-            # ارتقای دیتابیس بدون پاک شدن اطلاعات قبلی کاربر
-            try:
-                await db.execute("ALTER TABLE users ADD COLUMN channels TEXT")
-            except:
-                pass
             await db.commit()
         print("✅ دیتابیس محلی با موفقیت متصل شد.")
         return True
@@ -61,19 +56,17 @@ async def get_user_data(user_id):
         async with db.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
             if not row:
-                await db.execute("INSERT INTO users (user_id, banners, channels) VALUES (?, '{}', '[]')", (user_id,))
+                await db.execute("INSERT INTO users (user_id, banners) VALUES (?, '{}')", (user_id,))
                 await db.commit()
-                return {"_id": user_id, "banners": {}, "channels": [], "auto_delete": False, "stars_profit": 20.0, "premium_profit": 20.0, "checker": {}}
+                return {"_id": user_id, "banners": {}, "auto_delete": False, "stars_profit": 20.0, "premium_profit": 20.0, "checker": {}}
             
             banners = json.loads(row['banners']) if row['banners'] else {}
-            channels = json.loads(row['channels']) if 'channels' in row.keys() and row['channels'] else []
             user = {
                 "_id": user_id,
                 "auto_delete": bool(row['auto_delete']),
                 "stars_profit": float(row['stars_profit']),
                 "premium_profit": float(row['premium_profit']),
                 "banners": banners,
-                "channels": channels,
                 "checker": {}
             }
             if row['checker_session']:
@@ -84,8 +77,6 @@ async def update_user_data(user_id, update_dict):
     sets, values = [], []
     if "banners" in update_dict:
         sets.append("banners = ?"); values.append(json.dumps(update_dict["banners"]))
-    if "channels" in update_dict:
-        sets.append("channels = ?"); values.append(json.dumps(update_dict["channels"]))
     if "stars_profit" in update_dict:
         sets.append("stars_profit = ?"); values.append(update_dict["stars_profit"])
     if "premium_profit" in update_dict:
@@ -114,14 +105,12 @@ async def get_all_users():
             users = []
             for row in rows:
                 banners = json.loads(row['banners']) if row['banners'] else {}
-                channels = json.loads(row['channels']) if 'channels' in row.keys() and row['channels'] else []
                 u = {
                     "_id": row['user_id'],
                     "auto_delete": bool(row['auto_delete']),
                     "stars_profit": float(row['stars_profit']),
                     "premium_profit": float(row['premium_profit']),
                     "banners": banners,
-                    "channels": channels,
                     "checker": {}
                 }
                 if row['checker_session']:
@@ -174,15 +163,12 @@ def extract_name_and_emoji(text):
     name = re.sub(r'\d{15,22}', '', text).strip()
     return name if name else "دکمه", emoji_id
 
-def parse_channel_link(link):
-    link = link.strip()
-    if link.startswith("https://t.me/"):
-        return "@" + link.split("/")[-1]
-    elif link.startswith("t.me/"):
-        return "@" + link.split("/")[-1]
-    elif not link.startswith("@") and not link.startswith("-100"):
-        return "@" + link
-    return link
+async def get_channel_info(session):
+    if not CHANNEL_ID: return "تنظیم نشده", "https://t.me/telegram"
+    res = await api_request(session, "getChat", {"chat_id": CHANNEL_ID})
+    if res and res.get("ok"):
+        return res["result"]["title"], res["result"].get("invite_link", f"https://t.me/{CHANNEL_ID.replace('@', '')}")
+    return "عضویت در کانال", f"https://t.me/{CHANNEL_ID.replace('@', '')}"
 
 async def check_user_joined(session, user_id):
     if not CHANNEL_ID: return True
@@ -202,14 +188,14 @@ def parse_timer_to_seconds(time_str):
     return val * 60
 
 async def send_start_message(session, chat_id):
-    target_channel = CHANNEL_ID if CHANNEL_ID else "تنظیم نشده"
-    channel_url = f"https://t.me/{target_channel.replace('@', '')}" if target_channel != "تنظیم نشده" else "https://t.me/telegram"
+    channel_title, channel_url = await get_channel_info(session)
+    if not channel_url: channel_url = "https://t.me/telegram"
         
     text = format_custom_emojis("5019617635629794161 برای استفاده از ربات، ابتدا در کانال‌های زیر عضو شوید، سپس روی دکمه «5206607081334906820 تأیید عضویت» کلیک کنید.")
     
     reply_markup = {
         "inline_keyboard": [
-            [{"text": "عضویت در کانال", "url": channel_url}],
+            [{"text": channel_title, "url": channel_url}],
             [{"text": "تأیید عضویت", "callback_data": "verify_join", "icon_custom_emoji_id": "5206607081334906820"}]
         ]
     }
@@ -228,94 +214,115 @@ async def send_main_menu(session, chat_id, user_id, text_message="خوش امد�
     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": text_message, "reply_markup": reply_markup})
 
 # =================================================================
-# 🧠 هوش مصنوعی استارز و پریمیوم (دقیق و با تاخیر 10 ثانیه)
+# 🧠 موتور هوش مصنوعی چکر (اسکن دقیق از بالا به پایین بنر)
 # =================================================================
-async def get_live_price_from_group_stars(app, star_amount, profit_percent):
+async def get_live_price_from_group_stars(app, star_amount, profit_percent, user_id):
     try:
         sent_msg = await app.send_message(GROUP_ID, f"{star_amount} استارز")
     except Exception as e:
         print(f"❌ خطای ارسال پیام چکر: {e}")
+        async with aiohttp.ClientSession() as s:
+            await api_request(s, "sendMessage", {"chat_id": user_id, "text": f"⚠️ **هشدار سیستم چکر:**\nاکانت چکر شما نتوانست در گروه پیام بفرستد!\nدلیل: محدودیت اکانت یا لفت دادن از گروه.\n\nخطا: `{e}`", "parse_mode": "Markdown"})
         return None
         
     price_found = None
-    for _ in range(10):
-        await asyncio.sleep(1)
-        async for msg in app.get_chat_history(GROUP_ID, limit=5):
-            if msg.from_user and msg.from_user.username == CHECKER_BOT_USERNAME and msg.reply_to_message_id == sent_msg.id:
-                match = re.search(r'💶\s*([\d,]+)\s*toman', msg.text, re.IGNORECASE)
-                if match:
-                    raw_price = int(match.group(1).replace(",", ""))
-                    final_price = int(raw_price + (raw_price * profit_percent / 100))
-                    price_found = f"{final_price:,}"
-                    break
+    for _ in range(30):
+        await asyncio.sleep(0.5)
+        async for msg in app.get_chat_history(GROUP_ID, limit=10):
+            if msg.from_user and msg.from_user.username and msg.from_user.username.lower() == CHECKER_BOT_USERNAME.lower():
+                if msg.reply_to_message_id == sent_msg.id:
+                    match = re.search(r'💶\s*([\d,]+)\s*toman', msg.text, re.IGNORECASE)
+                    if match:
+                        raw_price = int(match.group(1).replace(",", ""))
+                        final_price = int(raw_price + (raw_price * profit_percent / 100))
+                        price_found = f"{final_price:,}"
+                        break
         if price_found: break
     return price_found
 
-async def get_live_price_from_group_premium(app, profit_percent):
+async def get_live_price_from_group_premium(app, profit_percent, user_id):
     try:
         sent_msg = await app.send_message(GROUP_ID, "پریمیوم")
-    except Exception as e:
+    except Exception:
         return None
         
     prices = {}
-    for _ in range(10):
-        await asyncio.sleep(1)
-        async for msg in app.get_chat_history(GROUP_ID, limit=5):
-            if msg.from_user and msg.from_user.username == CHECKER_BOT_USERNAME and msg.reply_to_message_id == sent_msg.id:
-                m3 = re.search(r'3\s*ماهه.*?💶\s*([\d,]+)\s*تومن', msg.text, re.DOTALL)
-                m6 = re.search(r'6\s*ماهه.*?💶\s*([\d,]+)\s*تومن', msg.text, re.DOTALL)
-                m12 = re.search(r'1\s*ساله.*?💶\s*([\d,]+)\s*تومن', msg.text, re.DOTALL)
-                
-                if m3: prices["3"] = f"{int(int(m3.group(1).replace(',', '')) * (1 + profit_percent / 100)):,}"
-                if m6: prices["6"] = f"{int(int(m6.group(1).replace(',', '')) * (1 + profit_percent / 100)):,}"
-                if m12: prices["12"] = f"{int(int(m12.group(1).replace(',', '')) * (1 + profit_percent / 100)):,}"
-                break
+    for _ in range(30):
+        await asyncio.sleep(0.5)
+        async for msg in app.get_chat_history(GROUP_ID, limit=10):
+            if msg.from_user and msg.from_user.username and msg.from_user.username.lower() == CHECKER_BOT_USERNAME.lower():
+                if msg.reply_to_message_id == sent_msg.id:
+                    m3 = re.search(r'3\s*ماهه.*?💶\s*([\d,]+)\s*تومن', msg.text, re.DOTALL)
+                    m6 = re.search(r'6\s*ماهه.*?💶\s*([\d,]+)\s*تومن', msg.text, re.DOTALL)
+                    m12 = re.search(r'1\s*ساله.*?💶\s*([\d,]+)\s*تومن', msg.text, re.DOTALL)
+                    
+                    if m3: prices["3"] = f"{int(int(m3.group(1).replace(',', '')) * (1 + profit_percent / 100)):,}"
+                    if m6: prices["6"] = f"{int(int(m6.group(1).replace(',', '')) * (1 + profit_percent / 100)):,}"
+                    if m12: prices["12"] = f"{int(int(m12.group(1).replace(',', '')) * (1 + profit_percent / 100)):,}"
+                    break
         if prices: break
     return prices
 
-async def ai_update_banner_prices_async(banner_text, user_data_obj):
+async def ai_update_banner_prices_async(banner_text, user_data_obj, user_id):
     client_data = user_data_obj.get("checker")
     if not client_data or "session_string" not in client_data: 
         return banner_text
 
-    app = Client(f"checker_temp_{user_data_obj['_id']}", api_id=client_data["api_id"], api_hash=client_data["api_hash"], session_string=client_data["session_string"], in_memory=True)
-    await app.start()
+    session_name = f"chk_{user_id}_{uuid.uuid4().hex[:6]}"
+    app = Client(session_name, api_id=client_data["api_id"], api_hash=client_data["api_hash"], session_string=client_data["session_string"], in_memory=True)
+    
+    try:
+        await app.start()
+    except Exception as e:
+        print(f"❌ خطا در روشن کردن کلاینت اکانت: {e}")
+        return banner_text
 
     result_text = banner_text
     
-    stars_pattern = r'(\d+)\s*تا:\s*([\d,]+)\s*تومان'
+    # هوش مصنوعی استخراج استارزها (به ترتیب از اول تا آخر بنر)
+    # این الگو به صورت دقیق X تا: Y تومان را پیدا میکند
+    stars_pattern = r'(\d+)\s*تا\s*:\s*([\d,]+)\s*(?:تومان|تومن)'
     if re.search(stars_pattern, result_text):
+        # پیدا کردن تمامی تطابق ها به ترتیب قرارگیری در متن
         matches = list(re.finditer(stars_pattern, result_text))
         profit_percent = user_data_obj.get("stars_profit", 20.0)
         
         for match in matches:
-            full_match = match.group(0)
-            star_count = match.group(1)
+            full_match = match.group(0) # مثال: "50 تا: 250,000 تومان"
+            star_count = match.group(1) # مثال: "50"
             
-            new_price = await get_live_price_from_group_stars(app, star_count, profit_percent)
+            # درآوردن قیمت از گروه چکر
+            new_price = await get_live_price_from_group_stars(app, star_count, profit_percent, user_id)
             if new_price:
                 new_str = f"{star_count} تا: {new_price} تومان"
-                result_text = result_text.replace(full_match, new_str)
+                # جایگزینی قیمت دقیقاً در همان موقعیت قبلی
+                result_text = result_text.replace(full_match, new_str, 1)
             
+            # صبر 10 ثانیه ای برای جلوگیری از فلود ربات
             await asyncio.sleep(10)
 
+    # پردازش پریمیوم
     prem_pattern_3 = r'((?:۳|3)\s*ماهه[^:]*:\s*)([\d,]+)(?:\s*تومان|\s*تومن)'
     prem_pattern_6 = r'((?:۶|6)\s*ماهه[^:]*:\s*)([\d,]+)(?:\s*تومان|\s*تومن)'
     prem_pattern_12 = r'((?:۱|1)\s*(?:ساله|سال)[^:]*:\s*)([\d,]+)(?:\s*تومان|\s*تومن)'
     
     if re.search(prem_pattern_3, result_text) or re.search(prem_pattern_6, result_text) or re.search(prem_pattern_12, result_text):
         profit_percent = user_data_obj.get("premium_profit", 20.0)
-        prem_prices = await get_live_price_from_group_premium(app, profit_percent)
+        prem_prices = await get_live_price_from_group_premium(app, profit_percent, user_id)
         if prem_prices:
             if "3" in prem_prices: result_text = re.sub(prem_pattern_3, r'\g<1>' + prem_prices["3"] + ' تومان', result_text)
             if "6" in prem_prices: result_text = re.sub(prem_pattern_6, r'\g<1>' + prem_prices["6"] + ' تومان', result_text)
             if "12" in prem_prices: result_text = re.sub(prem_pattern_12, r'\g<1>' + prem_prices["12"] + ' تومان', result_text)
                 
-    await app.stop()
+    try:
+        await app.stop()
+    except:
+        pass
+        
     return result_text
 
 # =================================================================
-# ⏰ موتور ارسال خودکار در چنل اختصاصی
+# ⏰ موتور ارسال خودکار (ضد توقف با پیش‌دستی ۵ دقیقه‌ای)
 # =================================================================
 async def fetch_and_post(user_id, user, banner_name, banner_info, target_time, interval, session):
     try:
@@ -327,7 +334,7 @@ async def fetch_and_post(user_id, user, banner_name, banner_info, target_time, i
         if not target_channel or target_channel == "تنظیم نشده":
             return
             
-        smart_content = await ai_update_banner_prices_async(original_content, user)
+        smart_content = await ai_update_banner_prices_async(original_content, user, user_id)
         final_content = format_custom_emojis(smart_content)
         
         now = int(time.time())
@@ -342,12 +349,19 @@ async def fetch_and_post(user_id, user, banner_name, banner_info, target_time, i
         payload = {"chat_id": target_channel, "text": final_content, "parse_mode": "HTML", "reply_markup": {"inline_keyboard": inline_keyboard} if inline_keyboard else None}
         res = await api_request(session, "sendMessage", payload)
         
-        if res and res.get("ok"):
-            u_data = await get_user_data(user_id)
-            if banner_name in u_data["banners"]:
+        u_data = await get_user_data(user_id)
+        if banner_name in u_data["banners"]:
+            u_data["banners"][banner_name]["last_posted_timestamp"] = int(time.time())
+            if res and res.get("ok"):
                 u_data["banners"][banner_name]["last_message_id"] = res["result"]["message_id"]
-                u_data["banners"][banner_name]["last_posted_timestamp"] = int(time.time())
-                await update_user_data(user_id, {"banners": u_data["banners"]})
+            await update_user_data(user_id, {"banners": u_data["banners"]})
+            
+    except Exception as e:
+        print(f"❌ خطای حیاتی در ارسال پست پس‌زمینه: {e}")
+        u_data = await get_user_data(user_id)
+        if banner_name in u_data["banners"]:
+            u_data["banners"][banner_name]["last_posted_timestamp"] = int(time.time())
+            await update_user_data(user_id, {"banners": u_data["banners"]})
     finally:
         fetching_banners.discard(f"{user_id}_{banner_name}")
 
@@ -418,7 +432,6 @@ async def main_bot_loop():
                                 else:
                                     await send_start_message(session, chat_id)
                                     
-                            # --- حل مشکل تنظیم چنل (مستقیم و بدون دکمه اضافه) ---
                             elif text == "تنظیم چنل":
                                 user_states[user_id] = {"state": "waiting_for_channel_link"}
                                 await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "لینک یا آیدی چنل خود را ارسال نمایید\nمثال : @Rhino_botTM"})
@@ -468,7 +481,7 @@ async def main_bot_loop():
                                     user_states[user_id] = {"state": "checker_api_id"}
                                     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "لطفاً API ID اکانت چکر را ارسال نمایید:"})
                                     
-                            # --- زیرمنوهای اطلاعات من ---
+                            # --- تنظیمات منوها ---
                             elif text == "تنظیمات":
                                 auto_del = u_data.get("auto_delete", False)
                                 emoji = "5852871561983299073" if auto_del else "5852812849780362931"
@@ -505,7 +518,7 @@ async def main_bot_loop():
                             elif text == "بازگشت":
                                 await send_main_menu(session, chat_id, user_id, "به منوی اصلی بازگشتید:")
 
-                            # --- تنظیمات سود و چکر ---
+                            # --- تنظیمات سود ---
                             elif text in ["تنظیم سود استارز", "تنظیم سود پریمیوم"]:
                                 if text == "تنظیم سود استارز":
                                     user_states[user_id] = {"state": "waiting_for_stars_profit"}
@@ -568,14 +581,15 @@ async def main_bot_loop():
                                 except Exception as e:
                                     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": f"❌ خطا در کد: {e}"})
 
-                            # --- فرآیند ثبت کانال ---
                             elif state == "waiting_for_channel_link":
-                                user_states[user_id]["temp_channel"] = parse_channel_link(text)
+                                channel_link = text.strip()
+                                if not channel_link.startswith("@") and not channel_link.startswith("-100") and not channel_link.startswith("http"):
+                                    channel_link = "@" + channel_link
+                                user_states[user_id]["temp_channel"] = channel_link
                                 user_states[user_id]["state"] = "waiting_for_confirmation"
                                 reply_markup = {"inline_keyboard": [[{"text": "تایید", "callback_data": "confirm_channel", "icon_custom_emoji_id": "5852871561983299073"}, {"text": "لغو عملیات", "callback_data": "cancel_action", "icon_custom_emoji_id": "5852812849780362931"}]]}
-                                await api_request(session, "sendMessage", {"chat_id": chat_id, "text": f"کاربر گرامی چنل شما {user_states[user_id]['temp_channel']} تایید است ؟", "reply_markup": reply_markup})
+                                await api_request(session, "sendMessage", {"chat_id": chat_id, "text": f"کاربر گرامی چنل شما {channel_link} تایید است ؟", "reply_markup": reply_markup})
 
-                            # --- فرآیند ثبت بنر ---
                             elif state == "waiting_for_banner_name":
                                 user_states[user_id]["temp_banner_name"] = text.strip()
                                 user_states[user_id]["state"] = "waiting_for_banner_content"
@@ -665,11 +679,10 @@ async def main_bot_loop():
                                 else:
                                     await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id, "text": "خطا! مجددا تلاش کنید.", "show_alert": True})
 
-                            # -- تایید بنر و نمایش چنل‌های کاربر --
                             elif data == "confirm_banner":
                                 channels = u_data.get("channels", [])
                                 if not channels:
-                                    await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id, "text": "❌ شما هیچ چنلی ثبت نکرده‌اید! ابتدا از منوی اصلی تنظیم چنل را انجام دهید.", "show_alert": True})
+                                    await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id, "text": "❌ شما هیچ چنلی ثبت نکرده‌اید! ابتدا تنظیم چنل را انجام دهید.", "show_alert": True})
                                 else:
                                     keyboard = [[{"text": ch, "callback_data": f"banch_{i}"}] for i, ch in enumerate(channels)]
                                     keyboard.append([{"text": "لغو", "callback_data": "cancel_action"}])
