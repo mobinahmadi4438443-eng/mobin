@@ -136,7 +136,6 @@ def convert_persian_to_english_digits(text):
     return text.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
 
 def format_custom_emojis(text):
-    # حفظ تگ‌های ایموجی دقیقاً مطابق خواسته شما
     return re.sub(r'(\d{15,22})', r"<tg-custom-emoji emoji-id='\1'>✨</tg-custom-emoji>", text)
 
 def extract_name_and_emoji(text):
@@ -160,7 +159,6 @@ async def check_user_joined(session, user_id):
     return False
 
 def parse_timer_to_seconds(time_str):
-    """تبدیل رشته متنی مثل '30 دقیقه' یا '24 ساعت' به ثانیه"""
     text = convert_persian_to_english_digits(time_str)
     nums = re.findall(r'\d+', text)
     if not nums: return None
@@ -168,7 +166,7 @@ def parse_timer_to_seconds(time_str):
     if "دقیقه" in text: return val * 60
     if "ساعت" in text: return val * 3600
     if "روز" in text: return val * 86400
-    return val * 60 # پیش‌فرض دقیقه
+    return val * 60
 
 async def send_start_message(session, chat_id):
     channel_title, channel_url = await get_channel_info(session)
@@ -189,18 +187,14 @@ async def send_main_menu(session, chat_id, user_id, text_message="خوش امد�
         [{"text": "دکمه شیشه ای"}, {"text": "تنظیم تایم"}],
         [{"text": "اطلاعات من"}, {"text": "پشتیبانی"}]
     ]
-    
     if OWNER_ID != 0 and user_id == OWNER_ID:
         keyboard.append([{"text": "وارد کردن شماره چکر"}])
         
-    reply_markup = {
-        "keyboard": keyboard,
-        "resize_keyboard": True
-    }
+    reply_markup = {"keyboard": keyboard, "resize_keyboard": True}
     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": text_message, "reply_markup": reply_markup})
 
 # =================================================================
-# هوش مصنوعی استارز و پریمیوم (با دیلی 3 ثانیه)
+# هوش مصنوعی پیشرفته سازگار با ساختار بنر شما
 # =================================================================
 async def get_live_price_from_group_stars(app, star_amount, profit_percent):
     sent_msg = await app.send_message(GROUP_ID, f"{star_amount} استارز")
@@ -239,38 +233,33 @@ async def get_live_price_from_group_premium(app, profit_percent):
 async def ai_update_banner_prices_async(banner_text, user_data_obj):
     client_data = user_data_obj.get("checker")
     if not client_data or "session_string" not in client_data: 
-        return banner_text # چکر فعال نیست، خود بنر رو برمیگردونه
+        return banner_text
 
     app = Client(f"checker_temp_{user_data_obj['_id']}", api_id=client_data["api_id"], api_hash=client_data["api_hash"], session_string=client_data["session_string"], in_memory=True)
     await app.start()
 
     result_text = banner_text
     
-    # 1. پردازش استارز
-    stars_pattern = r'((?:⭐️\s*)?)(\d+)(\s*(?:تا|استارز)[^:]*:\s*)([\d,]+)(\s*تومان)'
+    # الگوی جدید و دقیق مطابق عکس ارسالی شما (تشخیص عدد مثل 50، کلمه تا، قیمت و ایموجی‌ها در اطراف آن)
+    stars_pattern = r'(\d+)\s*تا:\s*([\d,]+)\s*تومان'
     if re.search(stars_pattern, result_text):
         matches = list(re.finditer(stars_pattern, result_text))
-        offset = 0
-        temp_result = ""
         profit_percent = user_data_obj.get("stars_profit", 20.0)
         
         for match in matches:
-            start, end = match.span()
-            prefix, star_count, middle, old_price, suffix = match.groups()
-            temp_result += result_text[offset:start]
+            full_match = match.group(0)
+            star_count = match.group(1)
+            old_price = match.group(2)
             
-            # ارسال پیام به گروه با فاصله 3 ثانیه‌ای که فرمودید
+            # درخواست قیمت از چکر با تاخیر ۳ ثانیه‌ای
             new_price = await get_live_price_from_group_stars(app, star_count, profit_percent)
-            if not new_price: new_price = old_price
+            if new_price:
+                new_str = f"{star_count} تا: {new_price} تومان"
+                result_text = result_text.replace(full_match, new_str)
             
-            temp_result += f"{prefix}{star_count}{middle}{new_price}{suffix}"
-            offset = end
-            await asyncio.sleep(3) # هر ۳ ثانیه یک‌بار چک می‌کند
-            
-        temp_result += result_text[offset:]
-        result_text = temp_result
+            await asyncio.sleep(3) # فاصله ۳ ثانیه برای جلوگیری از محدودیت تلگرام
 
-    # 2. پردازش پریمیوم
+    # پردازش پریمیوم
     prem_pattern_3 = r'((?:۳|3)\s*ماهه[^:]*:\s*)([\d,]+)(\s*تومان)'
     prem_pattern_6 = r'((?:۶|6)\s*ماهه[^:]*:\s*)([\d,]+)(\s*تومان)'
     prem_pattern_12 = r'((?:۱|1)\s*(?:ساله|سال)[^:]*:\s*)([\d,]+)(\s*تومان)'
@@ -306,11 +295,10 @@ async def background_poster():
                     if not timer_str: continue
                     
                     interval = parse_timer_to_seconds(timer_str)
-                    if not interval or interval < 300: interval = 300 # کمترین تایم 5 دقیقه
+                    if not interval or interval < 300: interval = 300 # حداقل ۵ دقیقه
                         
                     last_posted = banner_info.get("last_posted_timestamp", 0)
                     
-                    # اگر زمان مناسب رسیده است
                     if current_timestamp - last_posted >= interval:
                         banner_info["last_posted_timestamp"] = current_timestamp
                         banners_updated = True
@@ -318,11 +306,9 @@ async def background_poster():
                         original_content = banner_info.get("content", "")
                         inline_keyboard = banner_info.get("keyboard", [])
                         
-                        # اجرای هوش مصنوعی و جایگذاری قیمت
                         smart_content = await ai_update_banner_prices_async(original_content, user)
                         final_content = format_custom_emojis(smart_content)
                         
-                        # حذف پست قبلی در صورت نیاز
                         last_msg_id = banner_info.get("last_message_id")
                         if auto_delete and last_msg_id:
                             await api_request(session, "deleteMessage", {"chat_id": CHANNEL_ID, "message_id": last_msg_id})
@@ -354,7 +340,6 @@ async def main_bot_loop():
                     for update in updates["result"]:
                         offset = update["update_id"] + 1
                         
-                        # ----------------- پیام‌های متنی (کیبورد سریع و متن‌ها) -----------------
                         if "message" in update and "text" in update["message"]:
                             chat_id = update["message"]["chat"]["id"]
                             user_id = update["message"]["from"]["id"]
@@ -363,7 +348,6 @@ async def main_bot_loop():
                             u_data = await get_user_data(user_id)
                             state = user_states.get(user_id, {}).get("state")
                             
-                            # --- استارت ---
                             if text == "/start":
                                 user_states.pop(user_id, None)
                                 is_joined = await check_user_joined(session, user_id)
@@ -372,7 +356,6 @@ async def main_bot_loop():
                                 else:
                                     await send_start_message(session, chat_id)
                                     
-                            # --- منوی کیبورد سریع ---
                             elif text == "تنظیم چنل":
                                 user_states[user_id] = {"state": "waiting_for_channel_link"}
                                 reply_markup = {"inline_keyboard": [[{"text": "تنظیم", "callback_data": "start_setting_channel"}]]}
@@ -424,7 +407,6 @@ async def main_bot_loop():
                                     user_states[user_id] = {"state": "checker_api_id"}
                                     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "لطفاً API ID اکانت چکر را ارسال نمایید:"})
                                     
-                            # --- تنظیمات سود ---
                             elif text in ["تنظیم سود استارز", "تنظیم سود پریمیوم"]:
                                 if text == "تنظیم سود استارز":
                                     user_states[user_id] = {"state": "waiting_for_stars_profit"}
@@ -445,7 +427,6 @@ async def main_bot_loop():
                                 user_states.pop(user_id, None)
                                 await api_request(session, "sendMessage", {"chat_id": chat_id, "text": f"✅ سود پریمیوم شما روی {profit_str} درصد تنظیم شد."})
 
-                            # --- اتصال چکر ---
                             elif state == "checker_api_id":
                                 user_states[user_id]["temp_api_id"] = text.strip()
                                 user_states[user_id]["state"] = "checker_api_hash"
@@ -488,7 +469,6 @@ async def main_bot_loop():
                                 except Exception as e:
                                     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": f"❌ خطا در کد: {e}"})
 
-                            # --- تنظیمات متنی کاربر ---
                             elif state == "waiting_for_channel_link":
                                 user_states[user_id]["temp_channel"] = text.strip()
                                 user_states[user_id]["state"] = "waiting_for_confirmation"
@@ -515,17 +495,8 @@ async def main_bot_loop():
                                     u_data["banners"][b_name]["timer"] = text.strip()
                                     await update_user_data(user_id, {"banners": u_data["banners"]})
                                 user_states.pop(user_id, None) 
-                                await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "تایم برای پست شما با موفقیت تنظیم شد <tg-custom-emoji emoji-id='5852871561983299073'>✅</tg-custom-emoji>", "parse_mode": "HTML"})
+                                await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "تایم با موفقیت تنظیم شد <tg-custom-emoji emoji-id='5852871561983299073'>✅</tg-custom-emoji>", "parse_mode": "HTML"})
                                 await asyncio.sleep(0.5)
-                                await send_main_menu(session, chat_id, user_id)
-
-                            elif state == "waiting_for_banner_edit":
-                                banner_name = user_states[user_id].get("edit_banner_name")
-                                if banner_name:
-                                    u_data["banners"][banner_name]["content"] = text.strip()
-                                    await update_user_data(user_id, {"banners": u_data["banners"]})
-                                user_states.pop(user_id, None)
-                                await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "بنر ویرایش شد."})
                                 await send_main_menu(session, chat_id, user_id)
 
                             elif state in ["waiting_for_inline_btn_name", "waiting_for_subsequent_btn_name"]:
@@ -612,144 +583,13 @@ async def main_bot_loop():
                                 await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": text, "reply_markup": {"inline_keyboard": [[{"text": "بازگشت", "callback_data": "cancel_action"}]]}})
                                 await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
 
-                            # --- پروفایل ---
-                            elif data == "prof_settings":
-                                auto_del = u_data.get("auto_delete", False)
-                                emoji = "5852871561983299073" if auto_del else "5852812849780362931"
-                                keyboard = [[{"text": "روش حذف خودکار", "callback_data": "toggle_autodel", "icon_custom_emoji_id": emoji}], [{"text": "بازگشت", "callback_data": "cancel_action"}]]
-                                await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "تنظیمات شما:", "reply_markup": {"inline_keyboard": keyboard}})
-                                await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
-
-                            elif data == "toggle_autodel":
-                                current = u_data.get("auto_delete", False)
-                                await update_user_data(user_id, {"auto_delete": not current})
-                                auto_del = not current
-                                emoji = "5852871561983299073" if auto_del else "5852812849780362931"
-                                keyboard = [[{"text": "روش حذف خودکار", "callback_data": "toggle_autodel", "icon_custom_emoji_id": emoji}], [{"text": "بازگشت", "callback_data": "cancel_action"}]]
-                                await api_request(session, "editMessageReplyMarkup", {"chat_id": chat_id, "message_id": message_id, "reply_markup": {"inline_keyboard": keyboard}})
-                                await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
-
-                            elif data == "prof_banners":
-                                banners = list(u_data.get("banners", {}).keys())
-                                if not banners:
-                                    await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id, "text": "بنری وجود ندارد", "show_alert": True})
-                                else:
-                                    keyboard = [[{"text": b, "callback_data": f"pban_{i}"}] for i, b in enumerate(banners)]
-                                    keyboard.append([{"text": "لغو و بازگشت", "callback_data": "cancel_action"}])
-                                    await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "لیست بنرهای شما:", "reply_markup": {"inline_keyboard": keyboard}})
-                                    await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
-
-                            elif data.startswith("pban_"):
-                                idx = int(data.split("_")[-1])
-                                b_name = list(u_data["banners"].keys())[idx]
-                                b_content = u_data["banners"][b_name]["content"]
-                                keyboard = [[{"text": "ویرایش بنر", "callback_data": f"pbanedit_{idx}"}, {"text": "حذف بنر", "callback_data": f"pbandel_{idx}"}], [{"text": "لغو عملیات", "callback_data": "prof_banners"}]]
-                                preview = format_custom_emojis(b_content)
-                                await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": f"محتوای بنر:\n\n{preview}", "parse_mode": "HTML", "reply_markup": {"inline_keyboard": keyboard}})
-                                await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
-
-                            elif data.startswith("pbandel_"):
-                                idx = int(data.split("_")[-1])
-                                b_name = list(u_data["banners"].keys())[idx]
-                                del u_data["banners"][b_name]
-                                await update_user_data(user_id, {"banners": u_data["banners"]})
-                                await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id, "text": "بنر حذف شد!", "show_alert": True})
-                                await api_request(session, "deleteMessage", {"chat_id": chat_id, "message_id": message_id})
-                                await send_main_menu(session, chat_id, user_id)
-
-                            elif data.startswith("pbanedit_"):
-                                idx = int(data.split("_")[-1])
-                                b_name = list(u_data["banners"].keys())[idx]
-                                user_states[user_id] = {"state": "waiting_for_banner_edit", "edit_banner_name": b_name}
-                                await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "مجدد بنر را ارسال نمایید", "reply_markup": {"inline_keyboard": [[{"text": "لغو و بازگشت", "callback_data": "prof_banners"}]]}})
-                                await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
-
-                            elif data == "prof_timers":
-                                banners = list(u_data.get("banners", {}).keys())
-                                if not banners:
-                                    await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id, "text": "بنری وجود ندارد", "show_alert": True})
-                                else:
-                                    keyboard = [[{"text": b, "callback_data": f"ptime_{i}"}] for i, b in enumerate(banners)]
-                                    keyboard.append([{"text": "بازگشت", "callback_data": "cancel_action"}])
-                                    await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "تایمر بنر مورد نظر را انتخاب کنید:", "reply_markup": {"inline_keyboard": keyboard}})
-                                    await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
-
-                            elif data.startswith("ptime_"):
-                                idx = int(data.split("_")[-1])
-                                b_name = list(u_data["banners"].keys())[idx]
-                                c_timer = u_data["banners"][b_name].get("timer", "تنظیم نشده")
-                                keyboard = [[{"text": "تغییر تایم", "callback_data": f"ptimedit_{idx}"}], [{"text": "حذف تایم", "callback_data": f"ptimdel_{idx}"}], [{"text": "لغو بازگشت", "callback_data": "prof_timers"}]]
-                                text = f"تایم این بنر شما {c_timer} میباشد تغییراتی میخواهید انجام بدید با دکمه های زیر انجام بدهید."
-                                await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": text, "reply_markup": {"inline_keyboard": keyboard}})
-                                await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
-
-                            elif data.startswith("ptimdel_"):
-                                idx = int(data.split("_")[-1])
-                                b_name = list(u_data["banners"].keys())[idx]
-                                u_data["banners"][b_name]["timer"] = None
-                                await update_user_data(user_id, {"banners": u_data["banners"]})
-                                await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id, "text": "تایمر حذف شد!", "show_alert": True})
-                                await api_request(session, "deleteMessage", {"chat_id": chat_id, "message_id": message_id})
-                                await send_main_menu(session, chat_id, user_id)
-
-                            elif data.startswith("ptimedit_"):
-                                idx = int(data.split("_")[-1])
-                                user_states[user_id] = {"state": "waiting_for_time_input", "selected_time_banner_idx": idx}
-                                await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "تایم جدید رو بفرست", "reply_markup": {"inline_keyboard": [[{"text": "لغو بازگشت", "callback_data": "cancel_action"}]]}})
-                                await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
-
-                            elif data == "prof_inline_btns":
-                                banners = list(u_data.get("banners", {}).keys())
-                                if not banners:
-                                    await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id, "text": "بنری وجود ندارد", "show_alert": True})
-                                else:
-                                    keyboard = [[{"text": b, "callback_data": f"pinl_{i}"}] for i, b in enumerate(banners)]
-                                    keyboard.append([{"text": "بازگشت", "callback_data": "cancel_action"}])
-                                    await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "بنر مورد نظر را انتخاب کنید:", "reply_markup": {"inline_keyboard": keyboard}})
-                                    await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
-
-                            elif data.startswith("pinl_"):
-                                idx = int(data.split("_")[-1])
-                                b_name = list(u_data["banners"].keys())[idx]
-                                layout = u_data["banners"][b_name].get("keyboard", [])
-                                if not layout:
-                                    await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id, "text": "دکمه‌ای در این بنر نیست", "show_alert": True})
-                                else:
-                                    keyboard = []
-                                    for r_idx, row in enumerate(layout):
-                                        for c_idx, btn in enumerate(row):
-                                            keyboard.append([{"text": f"حذف: {btn.get('text', 'دکمه')}", "callback_data": f"pbtndel_{idx}_{r_idx}_{c_idx}"}])
-                                    keyboard.append([{"text": "بازگشت", "callback_data": "prof_inline_btns"}])
-                                    await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "لیست دکمه‌های شیشه‌ای:", "reply_markup": {"inline_keyboard": keyboard}})
-                                    await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
-
-                            elif data.startswith("pbtndel_"):
-                                parts = data.split("_")
-                                b_idx, r_idx, c_idx = int(parts[1]), int(parts[2]), int(parts[3])
-                                b_name = list(u_data["banners"].keys())[b_idx]
-                                layout = u_data["banners"][b_name].get("keyboard", [])
-                                if r_idx < len(layout) and c_idx < len(layout[r_idx]):
-                                    del layout[r_idx][c_idx]
-                                    if len(layout[r_idx]) == 0: del layout[r_idx]
-                                await update_user_data(user_id, {"banners": u_data["banners"]})
-                                await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id, "text": "دکمه حذف شد!", "show_alert": True})
-                                await api_request(session, "deleteMessage", {"chat_id": chat_id, "message_id": message_id})
-                                await send_main_menu(session, chat_id, user_id)
-
-                            # --- ساخت دکمه شیشه ای (عملیاتی) ---
                             elif data.startswith("select_inlineb_"):
                                 idx = int(data.split("_")[-1])
                                 b_name = list(u_data["banners"].keys())[idx]
-                                user_states[user_id] = {"state": "ready_to_add_inline", "selected_banner": b_name, "temp_inline_layout": []}
-                                keyboard = [[{"text": "اضافه کردن دکمه شیشه ای", "callback_data": "add_inline_btn", "icon_custom_emoji_id": "6032733629719777782"}]]
-                                await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": f"به بخش دکمه شیشه‌ای بنر {b_name} خوش آمدید", "reply_markup": {"inline_keyboard": keyboard}})
+                                user_states[user_id] = {"state": "waiting_for_inline_btn_name", "selected_banner": b_name, "temp_inline_layout": []}
+                                await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "اسم و ایدی ایموجی برای دکمه شیشه‌ای را ارسال نمایید ✨", "reply_markup": {"inline_keyboard": [[{"text": "بازگشت", "callback_data": "cancel_action"}]]}})
                                 await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
-
-                            elif data == "add_inline_btn":
-                                user_states[user_id]["state"] = "waiting_for_inline_btn_name"
-                                await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "کاربر گرامی اسم دکمه شیشه ای را ارسال نمایید", "reply_markup": {"inline_keyboard": [[{"text": "لغو و بازگشت", "callback_data": "cancel_action", "icon_custom_emoji_id": "5852812849780362931"}]]}})
-                                await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
-
+                                
                             elif data.startswith("btndir_"):
                                 direction = data.split("_")[-1]
                                 new_btn = user_states[user_id]["temp_new_btn"]
