@@ -2,53 +2,149 @@ import os
 import asyncio
 import re
 import aiohttp
+import json
+from urllib.parse import urlparse
 from datetime import datetime
 from pyrogram import Client
-from motor.motor_asyncio import AsyncIOMotorClient
+import aiomysql
 
 # =================================================================
-# دریافت متغیرهای محیطی از Railway
+# متغیرهای محیطی (Railway)
 # =================================================================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
-MONGO_URI = os.getenv("MONGO_URI")
-
-# متغیرهای اختیاری برای لاگین ربات‌های چکر
-# این موارد را هم در Railway تنظیم کنید تا ربات بتواند کلاینت‌ها را بسازد
-API_ID = int(os.getenv("API_ID", 1234567)) 
-API_HASH = os.getenv("API_HASH", "your_api_hash_here")
+OWNER_ID = int(os.getenv("OWNER_ID", 0)) # آیدی مالک ربات
+MYSQL_URL = os.getenv("MYSQL_URL") # آدرس کانکشن MySQL از Railway
 
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/"
 GROUP_ID = -1004426176128
 CHECKER_BOT_USERNAME = "HashTrxCheckerBot"
 
 # =================================================================
-# اتصال به دیتابیس MongoDB (سرعت بالا و غیرهمزمان)
+# تنظیمات دیتابیس MySQL (پرسرعت و Async)
 # =================================================================
-db_client = AsyncIOMotorClient(MONGO_URI)
-db = db_client.telegram_bot
-users_collection = db.users
+db_pool = None
 
-# وضعیت‌های موقت در حافظه رم (برای سرعت بیشتر)
-user_states = {}
-temp_login_clients = {}
+async def init_db():
+    global db_pool
+    # تجزیه آدرس کانکشن MySQL برای استخراج یوزر، پسورد، پورت و غیره
+    url = urlparse(MYSQL_URL)
+    
+    db_pool = await aiomysql.create_pool(
+        host=url.hostname,
+        port=url.port or 3306,
+        user=url.username,
+        password=url.password,
+        db=url.path.lstrip('/'),
+        autocommit=True
+    )
+    
+    async with db_pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            # ساخت جدول کاربران در صورت عدم وجود (بنرها به صورت LONGTEXT JSON ذخیره می‌شوند)
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id BIGINT PRIMARY KEY,
+                    auto_delete BOOLEAN DEFAULT FALSE,
+                    stars_profit FLOAT DEFAULT 20.0,
+                    premium_profit FLOAT DEFAULT 20.0,
+                    checker_api_id BIGINT NULL,
+                    checker_api_hash VARCHAR(255) NULL,
+                    checker_session TEXT NULL,
+                    banners LONGTEXT
+                )
+            """)
 
-# --- توابع دیتابیس ---
 async def get_user_data(user_id):
-    """دریافت اطلاعات کاربر از دیتابیس"""
-    user = await users_collection.find_one({"_id": user_id})
-    if not user:
-        user = {"_id": user_id, "banners": {}, "auto_delete": False, "stars_profit": 20.0, "premium_profit": 20.0}
-        await users_collection.insert_one(user)
-    return user
+    async with db_pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
+            row = await cur.fetchone()
+            if not row:
+                await cur.execute("INSERT INTO users (user_id, banners) VALUES (%s, '{}')", (user_id,))
+                return {"_id": user_id, "banners": {}, "auto_delete": False, "stars_profit": 20.0, "premium_profit": 20.0, "checker": {}}
+            
+            banners = json.loads(row['banners']) if row['banners'] else {}
+            user = {
+                "_id": user_id,
+                "auto_delete": bool(row['auto_delete']),
+                "stars_profit": float(row['stars_profit']),
+                "premium_profit": float(row['premium_profit']),
+                "banners": banners,
+                "checker": {}
+            }
+            if row.get('checker_session'):
+                user['checker'] = {
+                    "api_id": row['checker_api_id'],
+                    "api_hash": row['checker_api_hash'],
+                    "session_string": row['checker_session']
+                }
+            return user
 
 async def update_user_data(user_id, update_dict):
-    """بروزرسانی اطلاعات کاربر در دیتابیس"""
-    await users_collection.update_one({"_id": user_id}, {"$set": update_dict}, upsert=True)
+    sets = []
+    values = []
+    if "banners" in update_dict:
+        sets.append("banners = %s")
+        values.append(json.dumps(update_dict["banners"]))
+    if "stars_profit" in update_dict:
+        sets.append("stars_profit = %s")
+        values.append(update_dict["stars_profit"])
+    if "premium_profit" in update_dict:
+        sets.append("premium_profit = %s")
+        values.append(update_dict["premium_profit"])
+    if "auto_delete" in update_dict:
+        sets.append("auto_delete = %s")
+        values.append(update_dict["auto_delete"])
+    if "checker" in update_dict:
+        checker = update_dict["checker"]
+        sets.append("checker_api_id = %s")
+        values.append(checker.get("api_id"))
+        sets.append("checker_api_hash = %s")
+        values.append(checker.get("api_hash"))
+        sets.append("checker_session = %s")
+        values.append(checker.get("session_string"))
+        
+    if not sets: return
+    
+    query = f"UPDATE users SET {', '.join(sets)} WHERE user_id = %s"
+    values.append(user_id)
+    
+    async with db_pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(query, tuple(values))
+
+async def get_all_users():
+    async with db_pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT * FROM users")
+            rows = await cur.fetchall()
+            users = []
+            for row in rows:
+                banners = json.loads(row['banners']) if row['banners'] else {}
+                u = {
+                    "_id": row['user_id'],
+                    "auto_delete": bool(row['auto_delete']),
+                    "stars_profit": float(row['stars_profit']),
+                    "premium_profit": float(row['premium_profit']),
+                    "banners": banners,
+                    "checker": {}
+                }
+                if row.get('checker_session'):
+                    u['checker'] = {
+                        "api_id": row['checker_api_id'],
+                        "api_hash": row['checker_api_hash'],
+                        "session_string": row['checker_session']
+                    }
+                users.append(u)
+            return users
 
 # =================================================================
-# توابع پایه و درخواست‌ها
+# وضعیت‌ها و اطلاعات موقت کاربران
 # =================================================================
+user_states = {}
+temp_login_clients = {} 
+
 async def api_request(session, method, payload=None):
     url = BASE_URL + method
     async with session.post(url, json=payload) as response:
@@ -99,18 +195,18 @@ async def send_main_menu(session, chat_id, text_message="✅ لطفاً از م�
     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": text_message, "reply_markup": reply_markup})
 
 # =================================================================
-# هوش مصنوعی استارز و پریمیوم (متصل به دیتابیس)
+# هوش مصنوعی استارز و پریمیوم (متصل به MySQL)
 # =================================================================
-async def get_live_price_from_group_stars(user_data, star_amount):
-    client_data = user_data.get("checker")
+async def get_live_price_from_group_stars(user_data_obj, star_amount):
+    client_data = user_data_obj.get("checker")
     if not client_data or "session_string" not in client_data: return None
 
-    app = Client(f"checker_temp_{user_data['_id']}", api_id=client_data["api_id"], api_hash=client_data["api_hash"], session_string=client_data["session_string"], in_memory=True)
+    app = Client(f"checker_temp_{user_data_obj['_id']}", api_id=client_data["api_id"], api_hash=client_data["api_hash"], session_string=client_data["session_string"], in_memory=True)
     await app.start()
     sent_msg = await app.send_message(GROUP_ID, f"{star_amount} استارز")
     
     price_found = None
-    profit_percent = user_data.get("stars_profit", 20.0)
+    profit_percent = user_data_obj.get("stars_profit", 20.0)
     
     for _ in range(10):
         await asyncio.sleep(1)
@@ -127,16 +223,16 @@ async def get_live_price_from_group_stars(user_data, star_amount):
     await app.stop()
     return price_found
 
-async def get_live_price_from_group_premium(user_data):
-    client_data = user_data.get("checker")
+async def get_live_price_from_group_premium(user_data_obj):
+    client_data = user_data_obj.get("checker")
     if not client_data or "session_string" not in client_data: return None
 
-    app = Client(f"checker_temp_{user_data['_id']}_prem", api_id=client_data["api_id"], api_hash=client_data["api_hash"], session_string=client_data["session_string"], in_memory=True)
+    app = Client(f"checker_temp_{user_data_obj['_id']}_prem", api_id=client_data["api_id"], api_hash=client_data["api_hash"], session_string=client_data["session_string"], in_memory=True)
     await app.start()
     sent_msg = await app.send_message(GROUP_ID, "پریمیوم")
     
     prices = {}
-    profit_percent = user_data.get("premium_profit", 20.0)
+    profit_percent = user_data_obj.get("premium_profit", 20.0)
     
     for _ in range(10):
         await asyncio.sleep(1)
@@ -155,7 +251,7 @@ async def get_live_price_from_group_premium(user_data):
     await app.stop()
     return prices
 
-async def ai_update_banner_prices_async(banner_text, user_data):
+async def ai_update_banner_prices_async(banner_text, user_data_obj):
     result_text = banner_text
     
     # پردازش استارز
@@ -169,7 +265,7 @@ async def ai_update_banner_prices_async(banner_text, user_data):
             prefix, star_count, middle, old_price, suffix = match.groups()
             temp_result += result_text[offset:start]
             
-            new_price = await get_live_price_from_group_stars(user_data, star_count)
+            new_price = await get_live_price_from_group_stars(user_data_obj, star_count)
             if not new_price: new_price = old_price
             
             temp_result += f"{prefix}{star_count}{middle}{new_price}{suffix}"
@@ -183,7 +279,7 @@ async def ai_update_banner_prices_async(banner_text, user_data):
     prem_pattern_12 = r'((?:۱|1)\s*(?:ساله|سال)[^:]*:\s*)([\d,]+)(\s*تومان)'
     
     if re.search(prem_pattern_3, result_text) or re.search(prem_pattern_6, result_text) or re.search(prem_pattern_12, result_text):
-        prem_prices = await get_live_price_from_group_premium(user_data)
+        prem_prices = await get_live_price_from_group_premium(user_data_obj)
         if prem_prices:
             if "3" in prem_prices: result_text = re.sub(prem_pattern_3, r'\g<1>' + prem_prices["3"] + r'\g<3>', result_text)
             if "6" in prem_prices: result_text = re.sub(prem_pattern_6, r'\g<1>' + prem_prices["6"] + r'\g<3>', result_text)
@@ -192,14 +288,15 @@ async def ai_update_banner_prices_async(banner_text, user_data):
     return result_text
 
 # =================================================================
-# ارسال اتوماتیک سر تایم (Background Task خواندن از دیتابیس)
+# ارسال اتوماتیک سر تایم
 # =================================================================
 async def background_poster():
     async with aiohttp.ClientSession() as session:
         while True:
             now_time = datetime.now().strftime("%H:%M")
-            # دریافت تمامی کاربران از دیتابیس
-            async for user in users_collection.find({}):
+            all_users = await get_all_users()
+            
+            for user in all_users:
                 banners = user.get("banners", {})
                 auto_delete = user.get("auto_delete", False)
                 user_id = user["_id"]
@@ -228,18 +325,17 @@ async def background_poster():
                         if res.get("ok"):
                             banner_info["last_message_id"] = res["result"]["message_id"]
                             
-                # اگر تغییری در بنرها (آیدی پیام جدید یا تایم آخرین پست) ایجاد شد در دیتابیس ذخیره کن
                 if banners_updated:
                     await update_user_data(user_id, {"banners": banners})
             
             await asyncio.sleep(30)
 
 # =================================================================
-# حلقه اصلی ربات (Long Polling)
+# حلقه اصلی ربات
 # =================================================================
 async def main_bot_loop():
     offset = None
-    print("ربات روشن شد و به دیتابیس MongoDB متصل است...")
+    print("ربات روشن شد و به دیتابیس MySQL ابری متصل است...")
     
     async with aiohttp.ClientSession() as session:
         while True:
@@ -255,7 +351,6 @@ async def main_bot_loop():
                             user_id = update["message"]["from"]["id"]
                             text = update["message"]["text"]
                             
-                            # لود کردن دیتای کاربر از دیتابیس
                             u_data = await get_user_data(user_id)
                             state = user_states.get(user_id, {}).get("state")
                             
@@ -263,12 +358,18 @@ async def main_bot_loop():
                                 user_states.pop(user_id, None)
                                 await send_start_message(session, chat_id)
                                 
-                            elif text == "تنظیم سود استارز":
-                                user_states[user_id] = {"state": "waiting_for_stars_profit"}
-                                await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "سود را اعمال کنید مثال (۲۰):"})
-                            elif text == "تنظیم سود پریمیوم":
-                                user_states[user_id] = {"state": "waiting_for_premium_profit"}
-                                await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "سود را اعمال کنید مثال (۲۰):"})
+                            # ----- مدیریت امنیت: فقط مالک -----
+                            elif text in ["تنظیم سود استارز", "تنظیم سود پریمیوم"]:
+                                if user_id != OWNER_ID:
+                                    await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "⛔️ شما مالک ربات نیستید و دسترسی به این بخش را ندارید."})
+                                    continue
+                                
+                                if text == "تنظیم سود استارز":
+                                    user_states[user_id] = {"state": "waiting_for_stars_profit"}
+                                    await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "سود استارز را اعمال کنید مثال (۲۰):"})
+                                else:
+                                    user_states[user_id] = {"state": "waiting_for_premium_profit"}
+                                    await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "سود پریمیوم را اعمال کنید مثال (۲۰):"})
                                 
                             elif state == "waiting_for_stars_profit":
                                 profit_str = convert_persian_to_english_digits(text.replace("درصد", "").replace("%", "").strip())
@@ -282,6 +383,7 @@ async def main_bot_loop():
                                 user_states.pop(user_id, None)
                                 await api_request(session, "sendMessage", {"chat_id": chat_id, "text": f"✅ سود پریمیوم شما روی {profit_str} درصد تنظیم شد."})
 
+                            # ----- اتصال چکر -----
                             elif state == "checker_api_id":
                                 user_states[user_id]["temp_api_id"] = text.strip()
                                 user_states[user_id]["state"] = "checker_api_hash"
@@ -315,16 +417,27 @@ async def main_bot_loop():
                                     session_string = await client.export_session_string()
                                     await client.disconnect()
                                     
-                                    # ذخیره سشن در دیتابیس
                                     checker_dict = {"api_id": login_data["api_id"], "api_hash": login_data["api_hash"], "session_string": session_string}
                                     await update_user_data(user_id, {"checker": checker_dict})
                                     
                                     user_states.pop(user_id, None)
                                     temp_login_clients.pop(user_id, None)
-                                    await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "🎉 اکانت چکر با موفقیت متصل شد و در دیتابیس ذخیره گردید."})
+                                    await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "🎉 اکانت چکر متصل شد و در دیتابیس امن MySQL ذخیره گردید."})
                                 except Exception as e:
                                     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": f"❌ خطا در کد: {e}"})
 
+                            # (سایر بخش‌های بنر و زمان مثل قبل در اینجا مدیریت می‌شوند)
+                            elif state == "waiting_for_time_input":
+                                idx = user_states[user_id].get("selected_time_banner_idx")
+                                if idx is not None:
+                                    b_name = list(u_data["banners"].keys())[idx]
+                                    u_data["banners"][b_name]["timer"] = text.strip()
+                                    await update_user_data(user_id, {"banners": u_data["banners"]})
+                                user_states.pop(user_id, None) 
+                                await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "تایم با موفقیت تنظیم شد <tg-custom-emoji emoji-id='5852871561983299073'>✅</tg-custom-emoji>", "parse_mode": "HTML"})
+                                await asyncio.sleep(0.5)
+                                await send_main_menu(session, chat_id)
+                                
                         # ----------------- دکمه‌های شیشه‌ای -----------------
                         elif "callback_query" in update:
                             query = update["callback_query"]
@@ -334,9 +447,12 @@ async def main_bot_loop():
                             message_id = query["message"]["message_id"]
                             data = query["data"]
                             
-                            u_data = await get_user_data(user_id)
-                            
-                            if data == "menu_profile":
+                            if data == "verify_join":
+                                await api_request(session, "deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+                                await send_main_menu(session, chat_id)
+                                await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
+                                
+                            elif data == "menu_profile":
                                 keyboard = [
                                     [{"text": "تنظیمات", "callback_data": "prof_settings", "style": "primary"}],
                                     [{"text": "بنر ها", "callback_data": "prof_banners", "style": "primary"}],
@@ -344,14 +460,18 @@ async def main_bot_loop():
                                     [{"text": "افزودن چکر (هوش مصنوعی)", "callback_data": "prof_add_checker", "style": "success"}],
                                     [{"text": "بازگشت", "callback_data": "cancel_action", "style": "danger"}]
                                 ]
-                                await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "بخش اطلاعات من (تنظیم سود: «تنظیم سود استارز» یا «تنظیم سود پریمیوم»):", "reply_markup": {"inline_keyboard": keyboard}})
+                                await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "بخش اطلاعات من (تنظیم سود: کلمات «تنظیم سود استارز» یا «تنظیم سود پریمیوم» را به ربات بفرستید):", "reply_markup": {"inline_keyboard": keyboard}})
                                 await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
                                 
                             elif data == "prof_add_checker":
-                                user_states[user_id] = {"state": "checker_api_id"}
-                                await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "لطفاً API ID خود را ارسال نمایید:"})
-                                await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
-                                
+                                # ----- فقط مالک می‌تواند چکر اضافه کند -----
+                                if user_id != OWNER_ID:
+                                    await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id, "text": "⛔️ فقط مالک اصلی ربات مجاز به اضافه کردن شماره است!", "show_alert": True})
+                                else:
+                                    user_states[user_id] = {"state": "checker_api_id"}
+                                    await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "لطفاً API ID اکانت چکر را ارسال نمایید:"})
+                                    await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
+
                             elif data == "cancel_action":
                                 user_states.pop(user_id, None)
                                 await api_request(session, "deleteMessage", {"chat_id": chat_id, "message_id": message_id})
@@ -363,6 +483,7 @@ async def main_bot_loop():
                 await asyncio.sleep(2)
 
 async def run_all():
+    await init_db() # ساخت کانکشن MySQL
     await asyncio.gather(main_bot_loop(), background_poster())
 
 if __name__ == "__main__":
