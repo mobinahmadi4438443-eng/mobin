@@ -1,4 +1,5 @@
 pyrogram
 tgcrypto
 aiohttp
-motor
+aiomysql
+cryptography
