@@ -8,7 +8,8 @@ from pyrogram import Client
 import aiosqlite
 
 # =================================================================
-# متغیرهای محیطی 
+# متغیرهای محیطی (Railway)
+# فقط BOT_TOKEN، CHANNEL_ID و OWNER_ID را در Railway ست کنید
 # =================================================================
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 CHANNEL_ID = os.getenv("CHANNEL_ID", "").strip()
@@ -24,7 +25,7 @@ CHECKER_BOT_USERNAME = "HashTrxCheckerBot"
 DB_NAME = "bot_database.db"
 
 # =================================================================
-# تنظیمات دیتابیس SQLite 
+# تنظیمات دیتابیس اتوماتیک SQLite 
 # =================================================================
 async def init_db():
     try:
@@ -42,7 +43,7 @@ async def init_db():
                 )
             """)
             await db.commit()
-        print("✅ دیتابیس با موفقیت متصل شد.")
+        print("✅ دیتابیس محلی با موفقیت متصل شد.")
         return True
     except Exception as e:
         print(f"❌ خطا در ساخت دیتابیس: {e}")
@@ -117,7 +118,7 @@ async def get_all_users():
             return users
 
 # =================================================================
-# سیستم گزارش خطای هوشمند (ضد کرش)
+# سیستم توابع پایه
 # =================================================================
 user_states = {}
 temp_login_clients = {} 
@@ -128,16 +129,17 @@ async def api_request(session, method, payload=None):
         async with session.post(url, json=payload) as response:
             res = await response.json()
             if not res.get("ok") and method != "getUpdates":
-                print(f"⚠️ ارور از سمت تلگرام در متد {method}: {res['description']}")
+                print(f"⚠️ ارور تلگرام ({method}): {res['description']}")
             return res
     except Exception as e:
-        print(f"❌ خطای شبکه در ارسال درخواست به تلگرام ({method}): {e}")
+        print(f"❌ خطای شبکه: {e}")
         return {}
 
 def convert_persian_to_english_digits(text):
     return text.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
 
 def format_custom_emojis(text):
+    # تبدیل آیدی‌های عددی به تگ پریمیوم
     return re.sub(r'(\d{15,22})', r"<tg-custom-emoji emoji-id='\1'>✨</tg-custom-emoji>", text)
 
 def extract_name_and_emoji(text):
@@ -153,16 +155,16 @@ async def get_channel_info(session):
     res = await api_request(session, "getChat", {"chat_id": CHANNEL_ID})
     if res and res.get("ok"):
         return res["result"]["title"], res["result"].get("invite_link", f"https://t.me/{CHANNEL_ID.replace('@', '')}")
-    # اگر ربات در کانال ادمین نباشد، یک لینک دیفالت می‌سازیم تا ربات قفل نکند
     return "عضویت در کانال", f"https://t.me/{CHANNEL_ID.replace('@', '')}"
 
 async def send_start_message(session, chat_id):
     channel_title, channel_url = await get_channel_info(session)
-    # رفع باگ خطرناک لینک خالی
     if not channel_url: 
         channel_url = "https://t.me/telegram"
         
+    # دقیقاً متن با ایموجی‌های پریمیوم و تگ‌ها
     text = "<tg-custom-emoji emoji-id='5019617635629794161'>⭐️</tg-custom-emoji> برای استفاده از ربات، ابتدا در کانال‌های زیر عضو شوید، سپس روی دکمه «<tg-custom-emoji emoji-id='5206607081334906820'>✅</tg-custom-emoji> تأیید عضویت» کلیک کنید."
+    
     reply_markup = {
         "inline_keyboard": [
             [{"text": channel_title, "url": channel_url, "style": "primary"}],
@@ -171,7 +173,7 @@ async def send_start_message(session, chat_id):
     }
     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML", "reply_markup": reply_markup})
 
-async def send_main_menu(session, chat_id, text_message="✅ لطفاً از منوی زیر انتخاب کنید:"):
+async def send_main_menu(session, chat_id, text_message="<tg-custom-emoji emoji-id='5206607081334906820'>✅</tg-custom-emoji> لطفاً از منوی زیر انتخاب کنید:"):
     reply_markup = {
         "inline_keyboard": [
             [{"text": "تنظیم چنل", "callback_data": "menu_channel", "style": "primary", "icon_custom_emoji_id": "5796433758978577401"},
@@ -182,7 +184,7 @@ async def send_main_menu(session, chat_id, text_message="✅ لطفاً از م�
              {"text": "پشتیبانی", "callback_data": "menu_support", "style": "primary", "icon_custom_emoji_id": "5839301436717929423"}]
         ]
     }
-    await api_request(session, "sendMessage", {"chat_id": chat_id, "text": text_message, "reply_markup": reply_markup})
+    await api_request(session, "sendMessage", {"chat_id": chat_id, "text": text_message, "parse_mode": "HTML", "reply_markup": reply_markup})
 
 # =================================================================
 # هوش مصنوعی استارز و پریمیوم
@@ -325,7 +327,6 @@ async def main_bot_loop():
     offset = None
     
     async with aiohttp.ClientSession() as session:
-        # پاکسازی تداخل وب‌هوک در سرور ابری
         print("🗑 در حال بررسی و پاکسازی وب‌هوک‌های قدیمی...")
         await api_request(session, "deleteWebhook", {"drop_pending_updates": True})
         print("🚀 ربات آماده دریافت پیام‌هاست...")
@@ -418,7 +419,7 @@ async def main_bot_loop():
                                 except Exception as e:
                                     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": f"❌ خطا در کد: {e}"})
 
-                            # ----- تنظیم بنر -----
+                            # ----- بخش تنظیم بنر، کانال، زمان و شیشه‌ای -----
                             elif state == "waiting_for_channel_link":
                                 user_states[user_id]["temp_channel"] = text.strip()
                                 user_states[user_id]["state"] = "waiting_for_confirmation"
@@ -530,7 +531,6 @@ async def main_bot_loop():
                                 await send_main_menu(session, chat_id, "✅ تایید شد! منوی اصلی:")
                                 await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
 
-                            # --- مدیریت منوی بنر ---
                             elif data == "menu_banner":
                                 reply_markup = {"inline_keyboard": [[{"text": "تنظیم بنر", "callback_data": "start_setting_banner_name", "style": "success", "icon_custom_emoji_id": "5444856076954520455"}, {"text": "لغو و بازگشت", "callback_data": "cancel_action", "style": "danger", "icon_custom_emoji_id": "5787292363470672097"}]]}
                                 await api_request(session, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "کاربر گرامی وقتی بنر خود را ارسال میکنید با ایدی ایموجی ارسال کنید...", "reply_markup": reply_markup})
@@ -569,7 +569,7 @@ async def main_bot_loop():
                                 await api_request(session, "answerCallbackQuery", {"callback_query_id": query_id})
 
             except Exception as e:
-                pass
+                print("Error in polling loop:", e)
                 await asyncio.sleep(2)
 
 async def run_all():
