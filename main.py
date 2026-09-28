@@ -118,7 +118,7 @@ async def get_all_users():
             return users
 
 # =================================================================
-# توابع پایه 
+# توابع پایه و هندل کردن هوشمند ایموجی‌ها
 # =================================================================
 user_states = {}
 temp_login_clients = {} 
@@ -136,6 +136,10 @@ def convert_persian_to_english_digits(text):
     return text.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
 
 def format_custom_emojis(text):
+    """
+    هر جا در متن (اول، وسط یا انتهای خطوط) آیدی ایموجی پریمیوم (اعداد ۱۵ تا ۲۲ رقمی) ببیند،
+    آن را به تگ استاندارد HTML تلگرام تبدیل می‌کند تا در متن بنر کاملاً درست نمایش داده شود.
+    """
     return re.sub(r'(\d{15,22})', r"<tg-custom-emoji emoji-id='\1'>✨</tg-custom-emoji>", text)
 
 def extract_name_and_emoji(text):
@@ -194,7 +198,7 @@ async def send_main_menu(session, chat_id, user_id, text_message="خوش امد�
     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": text_message, "reply_markup": reply_markup})
 
 # =================================================================
-# هوش مصنوعی پیشرفته سازگار با ساختار بنر شما
+# هوش مصنوعی استارز و پریمیوم (با وقفه ۱۰ ثانیه‌ای بین استعلام‌ها)
 # =================================================================
 async def get_live_price_from_group_stars(app, star_amount, profit_percent):
     sent_msg = await app.send_message(GROUP_ID, f"{star_amount} استارز")
@@ -240,7 +244,7 @@ async def ai_update_banner_prices_async(banner_text, user_data_obj):
 
     result_text = banner_text
     
-    # الگوی جدید و دقیق مطابق عکس ارسالی شما (تشخیص عدد مثل 50، کلمه تا، قیمت و ایموجی‌ها در اطراف آن)
+    # 1. پردازش هوشمند استارز در هر کجای متن (تشخیص دقیق 50 تا، 100 تا و غیره)
     stars_pattern = r'(\d+)\s*تا:\s*([\d,]+)\s*تومان'
     if re.search(stars_pattern, result_text):
         matches = list(re.finditer(stars_pattern, result_text))
@@ -251,15 +255,14 @@ async def ai_update_banner_prices_async(banner_text, user_data_obj):
             star_count = match.group(1)
             old_price = match.group(2)
             
-            # درخواست قیمت از چکر با تاخیر ۳ ثانیه‌ای
             new_price = await get_live_price_from_group_stars(app, star_count, profit_percent)
             if new_price:
                 new_str = f"{star_count} تا: {new_price} تومان"
                 result_text = result_text.replace(full_match, new_str)
             
-            await asyncio.sleep(3) # فاصله ۳ ثانیه برای جلوگیری از محدودیت تلگرام
+            await asyncio.sleep(10) # 10 ثانیه فاصله بین هر استعلام برای جلوگیری از ریپورت شدن اکانت چکر
 
-    # پردازش پریمیوم
+    # 2. پردازش پریمیوم
     prem_pattern_3 = r'((?:۳|3)\s*ماهه[^:]*:\s*)([\d,]+)(\s*تومان)'
     prem_pattern_6 = r'((?:۶|6)\s*ماهه[^:]*:\s*)([\d,]+)(\s*تومان)'
     prem_pattern_12 = r'((?:۱|1)\s*(?:ساله|سال)[^:]*:\s*)([\d,]+)(\s*تومان)'
@@ -276,7 +279,7 @@ async def ai_update_banner_prices_async(banner_text, user_data_obj):
     return result_text
 
 # =================================================================
-# ارسال اتوماتیک سر تایم
+# ارسال اتوماتیک (شروع ۵ دقیقه زودتر برای بروزرسانی قیمت‌ها)
 # =================================================================
 async def background_poster():
     async with aiohttp.ClientSession() as session:
@@ -299,13 +302,18 @@ async def background_poster():
                         
                     last_posted = banner_info.get("last_posted_timestamp", 0)
                     
-                    if current_timestamp - last_posted >= interval:
+                    # ۵ دقیقه زودتر (300 ثانیه زودتر) فرایند استعلام قیمت شروع می‌شود
+                    pre_fetch_time = interval - 300
+                    if pre_fetch_time < 0: pre_fetch_time = 0
+                    
+                    if current_timestamp - last_posted >= pre_fetch_time:
                         banner_info["last_posted_timestamp"] = current_timestamp
                         banners_updated = True
                         
                         original_content = banner_info.get("content", "")
                         inline_keyboard = banner_info.get("keyboard", [])
                         
+                        # هوش مصنوعی قیمت‌ها را به‌روز می‌کند
                         smart_content = await ai_update_banner_prices_async(original_content, user)
                         final_content = format_custom_emojis(smart_content)
                         
