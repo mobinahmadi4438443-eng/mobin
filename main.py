@@ -130,7 +130,7 @@ async def get_all_users():
             return users
 
 # =================================================================
-# 🛡 توابع ضد کرش 
+# 🛡 توابع ضد کرش (حل مشکل Reply Markup خالی)
 # =================================================================
 user_states = {}
 temp_login_clients = {} 
@@ -225,15 +225,13 @@ async def send_main_menu(session, chat_id, user_id, text_message="خوش امد�
     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": text_message, "reply_markup": reply_markup})
 
 # =================================================================
-# 🧠 هوش مصنوعی چکر 
+# 🧠 هوش مصنوعی استخراج قیمت (با رفع باگ Peer ID)
 # =================================================================
 async def get_live_price_from_group_stars(app, star_amount, profit_percent, user_id):
     try:
         sent_msg = await app.send_message(GROUP_ID, f"{star_amount} استارز")
     except Exception as e:
         print(f"❌ خطای ارسال پیام چکر: {e}")
-        async with aiohttp.ClientSession() as s:
-            await api_request(s, "sendMessage", {"chat_id": user_id, "text": f"⚠️ **هشدار سیستم چکر:**\nاکانت چکر شما نتوانست در گروه پیام بفرستد!\nدلیل: محدودیت اکانت یا لفت دادن از گروه.\n\nخطا: `{e}`", "parse_mode": "Markdown"})
         return None
         
     price_found = None
@@ -284,8 +282,13 @@ async def ai_update_banner_prices_async(banner_text, user_data_obj, user_id):
     
     try:
         await app.start()
+        # ✨ کلید طلایی رفع ارور Peer Id Invalid: لود کردن کَش گفتگوها در حافظه ✨
+        try:
+            await app.get_chat(GROUP_ID)
+        except:
+            async for _ in app.get_dialogs(limit=50): pass
     except Exception as e:
-        print(f"❌ خطا در روشن کردن کلاینت اکانت: {e}")
+        print(f"❌ خطا در آماده‌سازی کلاینت اکانت چکر: {e}")
         return banner_text
 
     result_text = banner_text
@@ -333,7 +336,7 @@ async def fetch_and_post(user_id, user, banner_name, banner_info, target_time, i
         original_content = banner_info.get("content", "")
         inline_keyboard = banner_info.get("keyboard", [])
         auto_delete = user.get("auto_delete", False)
-        target_channel = banner_info.get("channel")
+        target_channel = banner_info.get("channel", CHANNEL_ID)
         
         if not target_channel or target_channel == "تنظیم نشده":
             return
@@ -350,7 +353,16 @@ async def fetch_and_post(user_id, user, banner_name, banner_info, target_time, i
         if auto_delete and last_msg_id:
             await api_request(session, "deleteMessage", {"chat_id": target_channel, "message_id": last_msg_id})
         
-        payload = {"chat_id": target_channel, "text": final_content, "parse_mode": "HTML", "reply_markup": {"inline_keyboard": inline_keyboard} if inline_keyboard else None}
+        # ✨ کلید طلایی رفع ارور object expected as reply markup ✨
+        payload = {
+            "chat_id": target_channel, 
+            "text": final_content, 
+            "parse_mode": "HTML"
+        }
+        # اگر کیبورد پر بود ارسالش کن، اگر خالی بود اصلاً فیلدش رو نساز تا تلگرام ارور ندهد
+        if inline_keyboard and len(inline_keyboard) > 0:
+            payload["reply_markup"] = {"inline_keyboard": inline_keyboard}
+
         res = await api_request(session, "sendMessage", payload)
         
         u_data = await get_user_data(user_id)
@@ -485,7 +497,7 @@ async def main_bot_loop():
                                     user_states[user_id] = {"state": "checker_api_id"}
                                     await api_request(session, "sendMessage", {"chat_id": chat_id, "text": "لطفاً API ID اکانت چکر را ارسال نمایید:"})
                                     
-                            # --- تنظیمات منوها ---
+                            # --- زیرمنوهای اطلاعات من ---
                             elif text == "تنظیمات":
                                 auto_del = u_data.get("auto_delete", False)
                                 emoji = "5852871561983299073" if auto_del else "5852812849780362931"
