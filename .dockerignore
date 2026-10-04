@@ -1,0 +1,8 @@
+*.db
+*.db-wal
+*.db-shm
+data/
+.git
+.gitignore
+README.md
+.env
